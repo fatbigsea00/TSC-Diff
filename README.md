@@ -33,7 +33,30 @@ pip install -r requirements.txt
 
 ## 数据集
 
-本文构建并使用 **SSTar(Side-Scan Sonar Targets)** 侧扫声呐目标数据集,采集自真实侧扫声呐作业数据,覆盖多种典型水下目标。完整数据集共 **489 张**图像,按目标类型分为 **5 类**:
+本文涉及两个侧扫声呐数据集:**SCTD**(方法训练/推理所用)与 **SSTar**(本文构建的侧扫声呐目标数据集)。两者均仅在本仓库提供**少量样本实例**,**完整数据集、类别定义、标注与划分等信息将在论文录用后公开。**
+
+### 1. SCTD
+
+TSC-Diff 两阶段训练与推理直接使用的声呐数据集,含 `aircraft / ship / human / artificial fishing reef` 四类,每个样本由「原始图像 + labelme 分割标注」组成,标注经渲染得到 ControlNet 所需的分割条件图。
+
+> 本发布版提供样本示例(见 [dataset/SCTD/samples/](dataset/SCTD/samples/),每类 3 组「原图 + 分割条件图」)。
+
+完整数据集预期目录结构:
+
+```
+dataset/SCTD/
+├── samples/                     # 已提供:每类少量样本示例(图 + 掩码)
+├── aircraft/                    # 待补充:各类别图像 + 标注
+├── ship/
+├── human/
+├── artificial fishing reef/
+├── metadata.jsonl               # 图像-提示词-掩码元信息
+└── split_4cat_70_plus_afr.json  # train/test 划分
+```
+
+### 2. SSTar (Side-Scan Sonar Targets)
+
+本文构建的侧扫声呐目标数据集,采集自真实侧扫声呐作业数据,覆盖多种典型水下目标。完整数据集共 **489 张**图像,按目标类型分为 **5 类**:
 
 | 类别(原始编码) | 完整数据量 | 本仓库样本数 |
 |------------------|-----------|--------------|
@@ -44,11 +67,9 @@ pip install -r requirements.txt
 | shipwreck(沉船) | 2 | 2 |
 | **合计** | **489** | **18** |
 
-> 本发布版仅提供**少量样本实例**(见 [dataset/SSTar/samples/](dataset/SSTar/samples/),详见 [dataset/SSTar/README.md](dataset/SSTar/README.md));**完整数据集、类别定义、标注与划分等信息将在论文录用后公开。**
+> 本发布版仅提供少量样本实例(见 [dataset/SSTar/samples/](dataset/SSTar/samples/),详见 [dataset/SSTar/README.md](dataset/SSTar/README.md))。
 
 数据特点:真实侧扫声呐影像(非仿真),单波段声呐强度图,呈典型成像特征(目标高亮回波 + 后方声学阴影 + 海底背景纹理),各图分辨率不固定。
-
-完整数据集发布后,按如下结构放置即可运行:
 
 ```
 dataset/SSTar/
