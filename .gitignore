@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+
+# model weights / checkpoints / outputs (too large for git)
+checkpoints/
+outputs/
+logs/
+runs/
+wandb/
+pretrained/
+*.ckpt
+*.safetensors
+*.pth
+*.pt
+*.bin
+
+# dataset (added separately, not tracked here)
+dataset/SCTD/aircraft/
+dataset/SCTD/ship/
+dataset/SCTD/human/
+dataset/SCTD/artificial fishing reef/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
