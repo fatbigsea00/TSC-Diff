@@ -18,10 +18,10 @@ pretrained/
 *.bin
 
 # dataset (added separately, not tracked here)
-dataset/SCTD/aircraft/
-dataset/SCTD/ship/
-dataset/SCTD/human/
-dataset/SCTD/artificial fishing reef/
+dataset/ConstructedDataset/aircraft/
+dataset/ConstructedDataset/ship/
+dataset/ConstructedDataset/human/
+dataset/ConstructedDataset/artificial fishing reef/
 
 # OS / editor
 .DS_Store

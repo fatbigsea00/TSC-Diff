@@ -1,19 +1,19 @@
 """
-ControlNet-Seg 训练脚本 (最终统一版)
+ControlNet-Seg training script (final unified version)
 
-核心思想:
-- 输入: segmentation map (colormap / binary mask) + text prompt
-- 输出: 完整声呐图像 (背景 + 物体 + 阴影)
+Core idea:
+- Input: segmentation map (colormap / binary mask) + text prompt
+- Output: complete sonar image (background + object + shadow)
 
-可选模块 (全部通过命令行开关控制，方便消融实验):
-  1. --use_colormap (默认True)  : RGB Colormap 作为条件输入 (vs 二值掩码)
-  2. --zero_conv_lr_mult        : Zero Conv 分层学习率
-  3. --use_rbe                  : 区域边界增强模块 (RBE)，增强 conditioning_embedding
-  4. --use_mask_ca              : 图引导交叉注意力 (MapCA, Map-Guided Cross-Attention)
-  5. --use_region_loss          : 区域加权 + 边界聚焦噪声损失
+Optional modules (all controlled via command-line switches for convenient ablation studies):
+  1. --use_colormap (default True)  : RGB Colormap as conditioning input (vs binary mask)
+  2. --zero_conv_lr_mult        : Zero Conv layered learning rate
+  3. --use_rbe                  : Region Boundary Enhancement module (RBE), enhances conditioning_embedding
+  4. --use_mask_ca              : Map-Guided Cross-Attention (MapCA)
+  5. --use_region_loss          : Region-weighted + boundary-focused noise loss
 
-SD 底座可通过 --pretrained_model_name_or_path 指向不同的微调模型
-(如 sd-baseline / sd-dsr) 来控制是否使用 DSR 增强。
+The SD backbone can point to different fine-tuned models via --pretrained_model_name_or_path
+(e.g. sd-baseline / sd-dsr) to control whether DSR enhancement is used.
 """
 
 import argparse
@@ -39,9 +39,9 @@ from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 from transformers import CLIPTextModel, CLIPTokenizer
 
-# 添加父目录到路径
+# Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from controlnet_dataset import SCTDControlNetDataset, controlnet_collate_fn
+from controlnet_dataset import ConstructedControlNetDataset, controlnet_collate_fn
 
 logger = get_logger(__name__)
 
@@ -98,116 +98,116 @@ def build_region_boundary_weight(cond_img, latent_h=64, latent_w=64,
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="ControlNet-Seg training for SCTD")
+    parser = argparse.ArgumentParser(description="ControlNet-Seg training on the constructed dataset")
     
-    # 数据参数
+    # Data parameters
     parser.add_argument(
         "--data_dir",
         type=str,
-        default="./dataset/SCTD",
-        help="数据集目录路径",
+        default="./dataset/ConstructedDataset",
+        help="Path to the dataset root directory",
     )
     parser.add_argument("--split", type=str, default=None, choices=["train", "test"],
-        help="使用数据集划分 (train/test)，默认None=全部数据")
+        help="Dataset split to use (train/test); default None = all data")
     parser.add_argument("--split_file", type=str, default=None,
-        help="split.json 路径 (默认 data_dir/split.json)")
+        help="Path to split.json (default: data_dir/split.json)")
     parser.add_argument(
         "--resolution",
         type=int,
         default=512,
-        help="图像分辨率",
+        help="Image resolution",
     )
     parser.add_argument(
         "--prompt_prefix",
         type=str,
         default="an underwater sonar image of ",
-        help="prompt前缀",
+        help="Prompt prefix",
     )
     parser.add_argument(
         "--use_colormap",
         action="store_true",
         default=True,
-        help="使用RGB colormap作为条件 (默认True)",
+        help="Use RGB colormap as conditioning (default True)",
     )
     parser.add_argument(
         "--use_binary_mask",
         action="store_true",
-        help="使用二值掩码而非colormap",
+        help="Use binary mask instead of colormap",
     )
     parser.add_argument(
         "--no_shadow",
         action="store_true",
-        help="掩码中不包含阴影区域，仅保留目标和背景",
+        help="Exclude shadow regions from the mask, keeping only object and background",
     )
     
-    # 模型参数
+    # Model parameters
     parser.add_argument(
         "--pretrained_model_name_or_path",
         type=str,
         default="runwayml/stable-diffusion-v1-5",
-        help="预训练SD模型路径",
+        help="Path to pretrained SD model",
     )
     parser.add_argument(
         "--controlnet_model_name_or_path",
         type=str,
         default=None,
-        help="预训练ControlNet模型路径 (可选，用于继续训练)",
+        help="Path to pretrained ControlNet model (optional, for continued training)",
     )
     
-    # 训练参数
+    # Training parameters
     parser.add_argument(
         "--output_dir",
         type=str,
         default="./checkpoints/controlnet_sctd",
-        help="输出目录",
+        help="Output directory",
     )
     parser.add_argument(
         "--seed",
         type=int,
         default=42,
-        help="随机种子",
+        help="Random seed",
     )
     parser.add_argument(
         "--train_batch_size",
         type=int,
         default=1,
-        help="训练batch大小",
+        help="Training batch size",
     )
     parser.add_argument(
         "--num_train_epochs",
         type=int,
         default=100,
-        help="训练轮数",
+        help="Number of training epochs",
     )
     parser.add_argument(
         "--max_train_steps",
         type=int,
         default=None,
-        help="最大训练步数",
+        help="Maximum number of training steps",
     )
     parser.add_argument(
         "--gradient_accumulation_steps",
         type=int,
         default=4,
-        help="梯度累积步数",
+        help="Gradient accumulation steps",
     )
     parser.add_argument(
         "--learning_rate",
         type=float,
         default=1e-5,
-        help="学习率",
+        help="Learning rate",
     )
     parser.add_argument(
         "--lr_scheduler",
         type=str,
         default="cosine",
-        help="学习率调度器",
+        help="Learning rate scheduler",
     )
     parser.add_argument(
         "--lr_warmup_steps",
         type=int,
         default=500,
-        help="学习率预热步数",
+        help="Learning rate warmup steps",
     )
     parser.add_argument(
         "--adam_beta1",
@@ -235,12 +235,12 @@ def parse_args():
         default=1.0,
     )
     
-    # 验证和保存
+    # Validation and saving
     parser.add_argument(
         "--validation_steps",
         type=int,
         default=500,
-        help="验证频率",
+        help="Validation frequency",
     )
     parser.add_argument(
         "--num_validation_images",
@@ -258,7 +258,7 @@ def parse_args():
         default=None,
     )
     
-    # 其他
+    # Misc
     parser.add_argument(
         "--mixed_precision",
         type=str,
@@ -279,77 +279,77 @@ def parse_args():
         "--zero_conv_lr_mult",
         type=float,
         default=1.0,
-        help="Zero conv 层学习率倍数 (推荐 5-10)",
+        help="Zero conv layer learning rate multiplier (recommended 5-10)",
     )
-    # ── 模块开关：RBE ──
+    # ── Module switch: RBE ──
     parser.add_argument(
         "--use_rbe",
         action="store_true",
-        help="使用 RBE (区域边界增强模块) 增强 ControlNet conditioning_embedding",
+        help="Use RBE (Region Boundary Enhancement module) to enhance ControlNet conditioning_embedding",
     )
-    # ── 模块开关：MapCA ──
+    # ── Module switch: MapCA ──
     parser.add_argument(
         "--use_mask_ca",
         action="store_true",
-        help="使用图引导交叉注意力 (Map-Guided Cross-Attention, MapCA)",
+        help="Use Map-Guided Cross-Attention (MapCA)",
     )
     parser.add_argument(
         "--ca_obj_boost",
         type=float,
         default=0.5,
-        help="MapCA: 物体区域增强系数 (uniform mode)",
+        help="MapCA: object region boost coefficient (uniform mode)",
     )
     parser.add_argument(
         "--ca_shadow_boost",
         type=float,
         default=0.3,
-        help="MapCA: 阴影区域增强系数 (uniform mode)",
+        help="MapCA: shadow region boost coefficient (uniform mode)",
     )
     parser.add_argument(
         "--ca_layered",
         action="store_true",
-        help="使用分层 boost (每个分辨率不同增强系数)",
+        help="Use layered boost (different boost coefficient per resolution)",
     )
     parser.add_argument(
         "--ca_mild",
         action="store_true",
-        help="使用温和分层 boost (仅64px层轻微降低,其余与uniform相同)",
+        help="Use mild layered boost (only the 64px layer is slightly reduced, the rest same as uniform)",
     )
     parser.add_argument(
         "--ca_timestep_gate",
         action="store_true",
-        help="使用时步门控 (高噪声强调制, 低噪声弱调制)",
+        help="Use timestep gating (strong modulation at high noise, weak modulation at low noise)",
     )
     parser.add_argument(
         "--ca_gate_mid",
         type=float,
         default=400.0,
-        help="时步门控: sigmoid 中心点",
+        help="Timestep gating: sigmoid center point",
     )
     parser.add_argument(
         "--ca_gate_temp",
         type=float,
         default=100.0,
-        help="时步门控: sigmoid 温度",
+        help="Timestep gating: sigmoid temperature",
     )
-    # ── 模块开关：Region Loss ──
+    # ── Module switch: Region Loss ──
     parser.add_argument("--use_region_loss", action="store_true",
-        help="启用区域加权+边界聚焦噪声预测损失")
+        help="Enable region-weighted + boundary-focused noise prediction loss")
     parser.add_argument("--rl_w_obj", type=float, default=1.0,
-        help="物体区域额外损失权重 (additive)")
+        help="Extra loss weight for object regions (additive)")
     parser.add_argument("--rl_w_shadow", type=float, default=0.5,
-        help="阴影区域额外损失权重 (additive)")
+        help="Extra loss weight for shadow regions (additive)")
     parser.add_argument("--rl_w_boundary", type=float, default=1.0,
-        help="边界区域额外损失权重 (additive)")
+        help="Extra loss weight for boundary regions (additive)")
     parser.add_argument("--rl_boundary_width", type=int, default=3,
-        help="边界膨胀核大小")
+        help="Boundary dilation kernel size")
     parser.add_argument("--rl_gate_mid", type=float, default=400.0,
-        help="区域损失时步门控: sigmoid 中心点")
+        help="Region loss timestep gating: sigmoid center point")
     parser.add_argument("--rl_gate_temp", type=float, default=100.0,
-        help="区域损失时步门控: sigmoid 温度")
+        help="Region loss timestep gating: sigmoid temperature")
     args = parser.parse_args()
     
-    # 处理colormap参数
+    # Handle colormap arguments
     if args.use_binary_mask:
         args.use_colormap = False
     
@@ -359,7 +359,7 @@ def parse_args():
 def main():
     args = parse_args()
     
-    # 初始化accelerator
+    # Initialize accelerator
     logging_dir = Path(args.logging_dir)
     accelerator_project_config = ProjectConfiguration(
         project_dir=args.output_dir,
@@ -378,8 +378,8 @@ def main():
     if accelerator.is_main_process:
         os.makedirs(args.output_dir, exist_ok=True)
     
-    # 加载模型组件
-    print("正在加载预训练模型...")
+    # Load model components
+    print("Loading pretrained model...")
     
     tokenizer = CLIPTokenizer.from_pretrained(
         args.pretrained_model_name_or_path, subfolder="tokenizer"
@@ -397,32 +397,32 @@ def main():
         args.pretrained_model_name_or_path, subfolder="scheduler"
     )
     
-    # 初始化或加载ControlNet
+    # Initialize or load ControlNet
     if args.controlnet_model_name_or_path:
-        print(f"加载预训练ControlNet: {args.controlnet_model_name_or_path}")
+        print(f"Loading pretrained ControlNet: {args.controlnet_model_name_or_path}")
         controlnet = ControlNetModel.from_pretrained(args.controlnet_model_name_or_path)
     else:
-        print("从UNet初始化新的ControlNet...")
-        # 确定输入通道数
+        print("Initializing new ControlNet from UNet...")
+        # Determine number of input channels
         conditioning_channels = 3 if args.use_colormap else 1
         controlnet = ControlNetModel.from_unet(
             unet,
             conditioning_channels=conditioning_channels,
         )
     
-    # RBE: 区域边界增强模块 —— 替换 conditioning_embedding
+    # RBE: Region Boundary Enhancement module —— replaces conditioning_embedding
     if args.use_rbe:
         from models.rbe_controlnet import apply_rbe_to_controlnet
         controlnet = apply_rbe_to_controlnet(controlnet, input_resolution=args.resolution // 8)
-        print("  [RBE] 区域边界增强模块已启用")
+        print("  [RBE] Region Boundary Enhancement module enabled")
     
-    # 冻结其他组件，只训练ControlNet
+    # Freeze other components, train only ControlNet
     vae.requires_grad_(False)
     unet.requires_grad_(False)
     text_encoder.requires_grad_(False)
     controlnet.train()
 
-    # MapCA: 替换 UNet 的 cross-attention processors
+    # MapCA: replace the UNet's cross-attention processors
     if args.use_mask_ca:
         from models.map_cross_attention import apply_map_guided_attention, BOOST_LAYERED, BOOST_MILD
         apply_map_guided_attention(unet)
@@ -438,11 +438,11 @@ def main():
         if args.ca_timestep_gate:
             print(f"  Timestep gate: mid={args.ca_gate_mid}, temp={args.ca_gate_temp}")
     
-    # 统计可训练参数
+    # Count trainable parameters
     trainable_params = sum(p.numel() for p in controlnet.parameters() if p.requires_grad)
-    print(f"ControlNet可训练参数: {trainable_params:,}")
+    print(f"ControlNet trainable parameters: {trainable_params:,}")
     
-    # 设置精度
+    # Set precision
     weight_dtype = torch.float32
     if accelerator.mixed_precision == "fp16":
         weight_dtype = torch.float16
@@ -453,9 +453,9 @@ def main():
     unet.to(accelerator.device, dtype=weight_dtype)
     text_encoder.to(accelerator.device, dtype=weight_dtype)
     
-    # 加载数据集
-    print("正在加载数据集...")
-    train_dataset = SCTDControlNetDataset(
+    # Load dataset
+    print("Loading dataset...")
+    train_dataset = ConstructedControlNetDataset(
         data_dir=args.data_dir,
         resolution=args.resolution,
         prompt_prefix=args.prompt_prefix,
@@ -479,8 +479,8 @@ def main():
         persistent_workers=(_num_workers > 0),
     )
     
-    # 优化器 - 支持分层学习率
-    # Zero conv 层使用更高的学习率，因为它们初始化为 0
+    # Optimizer - supports layered learning rate
+    # Zero conv layers use a higher learning rate because they are initialized to 0
     if args.zero_conv_lr_mult != 1.0:
         zero_conv_params = []
         other_params = []
@@ -493,11 +493,11 @@ def main():
                     other_params.append(param)
         
         zero_conv_lr = args.learning_rate * args.zero_conv_lr_mult
-        print(f"使用分层学习率:")
-        print(f"  - 基础学习率: {args.learning_rate}")
-        print(f"  - Zero Conv 学习率: {zero_conv_lr} ({args.zero_conv_lr_mult}x)")
-        print(f"  - 基础参数数量: {sum(p.numel() for p in other_params):,}")
-        print(f"  - Zero Conv 参数数量: {sum(p.numel() for p in zero_conv_params):,}")
+        print(f"Using layered learning rate:")
+        print(f"  - Base learning rate: {args.learning_rate}")
+        print(f"  - Zero Conv learning rate: {zero_conv_lr} ({args.zero_conv_lr_mult}x)")
+        print(f"  - Number of base parameters: {sum(p.numel() for p in other_params):,}")
+        print(f"  - Number of Zero Conv parameters: {sum(p.numel() for p in zero_conv_params):,}")
         
         optimizer = torch.optim.AdamW([
             {'params': other_params, 'lr': args.learning_rate},
@@ -516,14 +516,14 @@ def main():
             eps=args.adam_epsilon,
         )
     
-    # 计算训练步数
+    # Compute number of training steps
     num_update_steps_per_epoch = math.ceil(
         len(train_dataloader) / args.gradient_accumulation_steps
     )
     if args.max_train_steps is None:
         args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
     
-    # 学习率调度
+    # Learning rate scheduling
     lr_scheduler = get_scheduler(
         args.lr_scheduler,
         optimizer=optimizer,
@@ -531,14 +531,14 @@ def main():
         num_training_steps=args.max_train_steps * args.gradient_accumulation_steps,
     )
     
-    # Accelerator准备
+    # Accelerator preparation
     controlnet, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
         controlnet, optimizer, train_dataloader, lr_scheduler
     )
     
     num_train_epochs = math.ceil(args.max_train_steps / num_update_steps_per_epoch)
     
-    # 初始化swanlab (可选)
+    # Initialize swanlab (optional)
     try:
         import swanlab
         if accelerator.is_main_process:
@@ -551,9 +551,9 @@ def main():
         use_swanlab = True
     except ImportError:
         use_swanlab = False
-        print("swanlab未安装，跳过日志记录")
+        print("swanlab not installed, skipping logging")
     
-    # 开始训练
+    # Start training
     total_batch_size = (
         args.train_batch_size
         * accelerator.num_processes
@@ -561,29 +561,29 @@ def main():
     )
     
     print("=" * 60)
-    print("  ControlNet-Seg 训练 (统一版)")
+    print("  ControlNet-Seg training (unified version)")
     print("=" * 60)
-    print(f"  SD 底座       = {args.pretrained_model_name_or_path}")
-    print(f"  条件类型       = {'RGB Colormap' if args.use_colormap else 'Binary Mask'}")
-    print(f"  样本数量       = {len(train_dataset)}")
+    print(f"  SD backbone   = {args.pretrained_model_name_or_path}")
+    print(f"  Condition type = {'RGB Colormap' if args.use_colormap else 'Binary Mask'}")
+    print(f"  Num samples   = {len(train_dataset)}")
     print(f"  Epochs        = {num_train_epochs}")
     print(f"  Batch size    = {args.train_batch_size}")
-    print(f"  梯度累积       = {args.gradient_accumulation_steps}")
-    print(f"  总batch size  = {total_batch_size}")
-    print(f"  总训练步数     = {args.max_train_steps}")
-    print(f"  学习率         = {args.learning_rate}")
+    print(f"  Grad accum    = {args.gradient_accumulation_steps}")
+    print(f"  Total batch size  = {total_batch_size}")
+    print(f"  Total training steps = {args.max_train_steps}")
+    print(f"  Learning rate = {args.learning_rate}")
     print(f"  Zero Conv LR  = {args.learning_rate * args.zero_conv_lr_mult} ({args.zero_conv_lr_mult}x)")
     print("-" * 60)
     print(f"  [RBE]          = {'ON' if args.use_rbe else 'OFF'}")
     print(f"  [MapCA]        = {'ON' if args.use_mask_ca else 'OFF'}")
     print(f"  [Region Loss]  = {'ON' if args.use_region_loss else 'OFF'}")
-    print(f"  [No Shadow]    = {'ON (仅目标+背景)' if args.no_shadow else 'OFF (含阴影)'}")
+    print(f"  [No Shadow]    = {'ON (object+background only)' if args.no_shadow else 'OFF (includes shadow)'}")
     print("=" * 60)
     
     global_step = 0
     first_epoch = 0
     
-    # 恢复训练
+    # Resume training
     if args.resume_from_checkpoint:
         if args.resume_from_checkpoint != "latest":
             path = os.path.basename(args.resume_from_checkpoint)
@@ -594,12 +594,12 @@ def main():
             path = dirs[-1] if len(dirs) > 0 else None
         
         if path is not None:
-            accelerator.print(f"从checkpoint恢复: {path}")
+            accelerator.print(f"Resuming from checkpoint: {path}")
             accelerator.load_state(os.path.join(args.output_dir, path))
             global_step = int(path.split("-")[1])
             first_epoch = global_step // num_update_steps_per_epoch
     
-    # 训练循环
+    # Training loop
     progress_bar = tqdm(
         range(global_step, args.max_train_steps),
         disable=not accelerator.is_local_main_process,
@@ -616,17 +616,17 @@ def main():
         
         for step, batch in enumerate(train_dataloader):
             with accelerator.accumulate(controlnet):
-                # 编码目标图像到latent空间
+                # Encode target image into latent space
                 latents = vae.encode(
                     batch["pixel_values"].to(dtype=torch.float32)
                 ).latent_dist.sample()
                 latents = latents * vae.config.scaling_factor
                 
-                # 采样噪声
+                # Sample noise
                 noise = torch.randn_like(latents)
                 bsz = latents.shape[0]
                 
-                # 采样随机时间步
+                # Sample random timesteps
                 timesteps = torch.randint(
                     0,
                     noise_scheduler.config.num_train_timesteps,
@@ -635,14 +635,14 @@ def main():
                 )
                 timesteps = timesteps.long()
                 
-                # 添加噪声
+                # Add noise
                 noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
                 noisy_latents = noisy_latents.to(dtype=weight_dtype)
                 
-                # 获取条件图像 (segmentation map)
+                # Get conditioning image (segmentation map)
                 controlnet_image = batch["conditioning_pixel_values"].to(dtype=weight_dtype)
 
-                # 编码文本
+                # Encode text
                 text_input_ids = tokenizer(
                     batch["prompts"],
                     max_length=tokenizer.model_max_length,
@@ -653,7 +653,7 @@ def main():
                 
                 encoder_hidden_states = text_encoder(text_input_ids)[0].to(dtype=weight_dtype)
                 
-                # ControlNet前向传播
+                # ControlNet forward pass
                 down_block_res_samples, mid_block_res_sample = controlnet(
                     noisy_latents,
                     timesteps,
@@ -662,13 +662,13 @@ def main():
                     return_dict=False,
                 )
                 
-                # 确保ControlNet输出与UNet dtype一致
+                # Ensure ControlNet output dtype matches UNet
                 down_block_res_samples = [
                     sample.to(dtype=weight_dtype) for sample in down_block_res_samples
                 ]
                 mid_block_res_sample = mid_block_res_sample.to(dtype=weight_dtype)
                 
-                # UNet预测噪声 (带ControlNet条件)
+                # UNet predicts noise (with ControlNet conditioning)
                 if args.use_mask_ca:
                     from models.map_cross_attention import set_map_ca_data
                     if _active_boost is not None:
@@ -689,7 +689,7 @@ def main():
                     mid_block_additional_residual=mid_block_res_sample,
                 ).sample
                 
-                # 计算损失
+                # Compute loss
                 if noise_scheduler.config.prediction_type == "epsilon":
                     target = noise.to(dtype=weight_dtype)
                 elif noise_scheduler.config.prediction_type == "v_prediction":
@@ -712,7 +712,7 @@ def main():
                 else:
                     loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
 
-                # 反向传播
+                # Backward pass
                 accelerator.backward(loss)
                 if accelerator.sync_gradients:
                     accelerator.clip_grad_norm_(controlnet.parameters(), args.max_grad_norm)
@@ -720,13 +720,13 @@ def main():
                 lr_scheduler.step()
                 optimizer.zero_grad()
             
-            # 更新进度
+            # Update progress
             if accelerator.sync_gradients:
                 progress_bar.update(1)
                 global_step += 1
                 train_loss += loss.detach().item()
                 
-                # 日志
+                # Logging
                 if global_step % 100 == 0:
                     avg_loss = train_loss / 100
                     if accelerator.is_main_process and use_swanlab:
@@ -736,17 +736,17 @@ def main():
                         }, step=global_step)
                     train_loss = 0.0
                 
-                # 保存checkpoint
+                # Save checkpoint
                 if global_step % args.checkpointing_steps == 0:
                     if accelerator.is_main_process:
                         save_path = os.path.join(args.output_dir, f"checkpoint-{global_step}")
                         accelerator.save_state(save_path)
-                        print(f"保存checkpoint: {save_path}")
+                        print(f"Saved checkpoint: {save_path}")
                 
-                # 验证
+                # Validation
                 if global_step % args.validation_steps == 0:
                     if accelerator.is_main_process:
-                        print(f"\n验证中... (step {global_step})")
+                        print(f"\nValidating... (step {global_step})")
                         validation(
                             args,
                             accelerator,
@@ -763,7 +763,7 @@ def main():
             if global_step >= args.max_train_steps:
                 break
     
-    # 保存最终模型
+    # Save final model
     accelerator.wait_for_everyone()
     if accelerator.is_main_process:
         controlnet_model = accelerator.unwrap_model(controlnet)
@@ -776,14 +776,14 @@ def main():
             try:
                 controlnet_model.save_pretrained(save_dir)
             except Exception as e:
-                print(f"  警告: save_pretrained 失败({e})，改用 torch.save")
+                print(f"  Warning: save_pretrained failed ({e}), falling back to torch.save")
                 torch.save(controlnet_model.state_dict(),
                            os.path.join(save_dir, "diffusion_pytorch_model.bin"))
                 controlnet_model.save_config(save_dir)
-            print(f"训练完成! RBE-ControlNet 已保存到: {save_dir}")
+            print(f"Training complete! RBE-ControlNet saved to: {save_dir}")
         else:
             controlnet_model.save_pretrained(save_dir)
-            print(f"训练完成! ControlNet已保存到: {save_dir}")
+            print(f"Training complete! ControlNet saved to: {save_dir}")
         
         if use_swanlab:
             swanlab.finish()
@@ -793,17 +793,17 @@ def main():
 
 def validation(args, accelerator, controlnet, unet, vae, text_encoder, tokenizer, 
                noise_scheduler, weight_dtype, global_step):
-    """验证函数 - 生成样本图像"""
+    """Validation function - generates sample images"""
     import random
     from PIL import Image
     import numpy as np
     
-    # 设置为评估模式
+    # Set to evaluation mode
     controlnet.eval()
     controlnet_model = accelerator.unwrap_model(controlnet)
     
-    # 确保所有模型使用 float32 避免验证时的 dtype 不匹配
-    # 保存原始 dtype 用于恢复
+    # Ensure all models use float32 to avoid dtype mismatch during validation
+    # Save original dtype for restoration
     orig_unet_dtype = next(unet.parameters()).dtype
     orig_text_encoder_dtype = next(text_encoder.parameters()).dtype
     
@@ -812,7 +812,7 @@ def validation(args, accelerator, controlnet, unet, vae, text_encoder, tokenizer
     text_encoder.to(dtype=torch.float32)
     controlnet_model.to(dtype=torch.float32)
     
-    # 创建pipeline - 使用 float32 避免 dtype 不匹配
+    # Create pipeline - use float32 to avoid dtype mismatch
     pipeline = StableDiffusionControlNetPipeline(
         vae=vae,
         text_encoder=text_encoder,
@@ -827,8 +827,8 @@ def validation(args, accelerator, controlnet, unet, vae, text_encoder, tokenizer
     pipeline = pipeline.to(accelerator.device, dtype=torch.float32)
     pipeline.set_progress_bar_config(disable=True)
     
-    # 加载验证数据
-    val_dataset = SCTDControlNetDataset(
+    # Load validation data
+    val_dataset = ConstructedControlNetDataset(
         data_dir=args.data_dir,
         resolution=args.resolution,
         prompt_prefix=args.prompt_prefix,
@@ -847,7 +847,7 @@ def validation(args, accelerator, controlnet, unet, vae, text_encoder, tokenizer
     for i, idx in enumerate(val_indices):
         sample = val_dataset[idx]
 
-        # 准备条件图像
+        # Prepare conditioning image
         cond_image = sample["conditioning_pixel_values"]  # [C, H, W]
         if args.use_colormap:
             cond_image_np = (cond_image.permute(1, 2, 0).numpy() * 255).astype("uint8")
@@ -855,20 +855,20 @@ def validation(args, accelerator, controlnet, unet, vae, text_encoder, tokenizer
             cond_image_np = (cond_image.squeeze().numpy() * 255).astype("uint8")
         cond_image_pil = Image.fromarray(cond_image_np)
 
-        # 二值掩码需要传 tensor 给 pipeline，避免 PIL 自动转 RGB 导致通道不匹配
+        # Binary masks must be passed to the pipeline as a tensor, to avoid PIL auto-converting to RGB and causing a channel mismatch
         if args.use_colormap:
             pipeline_cond = cond_image_pil
         else:
             pipeline_cond = cond_image.unsqueeze(0)  # [1, 1, H, W]
 
-        # 目标图像 (ground truth)
+        # Target image (ground truth)
         gt_image = (sample["pixel_values"].permute(1, 2, 0).numpy() + 1) / 2
         gt_image = (gt_image * 255).clip(0, 255).astype("uint8")
         gt_image_pil = Image.fromarray(gt_image)
 
         prompt = sample["prompt"]
 
-        # 生成
+        # Generate
         if args.use_mask_ca:
             from models.map_cross_attention import BOOST_LAYERED, BOOST_MILD
             if args.ca_mild:
@@ -902,7 +902,7 @@ def validation(args, accelerator, controlnet, unet, vae, text_encoder, tokenizer
                 guidance_scale=7.5,
             ).images[0]
         
-        # 保存结果
+        # Save results
         output.save(os.path.join(validation_dir, f"generated_{i}.png"))
         gt_image_pil.save(os.path.join(validation_dir, f"ground_truth_{i}.png"))
         cond_image_pil.save(os.path.join(validation_dir, f"condition_{i}.png"))
@@ -910,17 +910,17 @@ def validation(args, accelerator, controlnet, unet, vae, text_encoder, tokenizer
         with open(os.path.join(validation_dir, f"prompt_{i}.txt"), "w") as f:
             f.write(prompt)
     
-    print(f"验证图像已保存到: {validation_dir}")
+    print(f"Validation images saved to: {validation_dir}")
     
     del pipeline
     torch.cuda.empty_cache()
     
-    # 恢复训练时的 dtype
-    vae.to(dtype=torch.float32)  # VAE 始终保持 float32
+    # Restore dtypes used during training
+    vae.to(dtype=torch.float32)  # VAE always stays float32
     unet.to(dtype=orig_unet_dtype)
     text_encoder.to(dtype=orig_text_encoder_dtype)
     
-    # 恢复训练模式
+    # Restore training mode
     controlnet.train()
 
 

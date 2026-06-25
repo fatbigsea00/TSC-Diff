@@ -1,10 +1,10 @@
 """
-ControlNet-Seg 推理脚本
+ControlNet-Seg inference script
 
-支持三种推理模式:
-1. dataset: 从SCTD数据集读取mask推理
-2. mask:    从掩码图片文件/目录推理
-3. xml:     从X-AnyLabeling XML标注文件推理
+Supports three inference modes:
+1. dataset: read masks from the constructed dataset for inference
+2. mask:    inference from mask image files/directories
+3. xml:     inference from X-AnyLabeling XML annotation files
 """
 
 import argparse
@@ -27,13 +27,13 @@ from diffusers import (
     StableDiffusionControlNetPipeline,
     UniPCMultistepScheduler,
 )
-from controlnet_dataset import SCTDControlNetDataset, CATEGORY_COLORS
+from controlnet_dataset import ConstructedControlNetDataset, CATEGORY_COLORS
 
 
-# ===================== XML 解析工具 =====================
+# ===================== XML parsing utilities =====================
 
 def parse_xml_annotation(xml_path: str) -> Dict:
-    """解析X-AnyLabeling格式的XML文件"""
+    """Parse an XML file in X-AnyLabeling format"""
     tree = ET.parse(xml_path)
     root = tree.getroot()
 
@@ -66,7 +66,7 @@ def parse_xml_annotation(xml_path: str) -> Dict:
 
 
 def create_mask_from_xml(xml_data: Dict, target_size: Tuple[int, int] = (512, 512)) -> Image.Image:
-    """从XML数据创建RGB colormap掩码"""
+    """Create an RGB colormap mask from XML data"""
     mask = Image.new('RGB', target_size, CATEGORY_COLORS['background'])
     draw = ImageDraw.Draw(mask)
 
@@ -83,7 +83,7 @@ def create_mask_from_xml(xml_data: Dict, target_size: Tuple[int, int] = (512, 51
         else:
             other_objects.append(obj)
 
-    # 先绘制shadow（下层），再绘制物体（上层）
+    # Draw shadows first (lower layer), then objects (upper layer)
     for obj in shadow_objects:
         scaled_points = [(x * scale_x, y * scale_y) for x, y in obj['points']]
         if len(scaled_points) >= 3:
@@ -99,7 +99,7 @@ def create_mask_from_xml(xml_data: Dict, target_size: Tuple[int, int] = (512, 51
     return mask
 
 
-# ===================== 通用工具 =====================
+# ===================== General utilities =====================
 
 def create_mask_from_polygon(
     polygons: List[List[tuple]],
@@ -107,7 +107,7 @@ def create_mask_from_polygon(
     image_size: tuple = (512, 512),
     use_colormap: bool = True,
 ) -> Image.Image:
-    """从多边形坐标创建mask"""
+    """Create a mask from polygon coordinates"""
     if use_colormap:
         mask = Image.new('RGB', image_size, CATEGORY_COLORS['background'])
     else:
@@ -131,7 +131,7 @@ def create_mask_from_polygon(
 
 
 def create_comparison_image(images: List[Image.Image]) -> Image.Image:
-    """创建横向拼接对比图"""
+    """Create a horizontally concatenated comparison image"""
     width = images[0].width
     height = images[0].height
     comparison = Image.new('RGB', (width * len(images), height))
@@ -140,10 +140,10 @@ def create_comparison_image(images: List[Image.Image]) -> Image.Image:
     return comparison
 
 
-# ===================== Pipeline 加载 =====================
+# ===================== Pipeline loading =====================
 
 def load_pipeline(args):
-    """加载ControlNet + SD pipeline"""
+    """Load the ControlNet + SD pipeline"""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     if args.mixed_precision == "fp16":
@@ -153,33 +153,33 @@ def load_pipeline(args):
     else:
         dtype = torch.float32
 
-    # 加载 ControlNet
-    print(f"加载ControlNet模型: {args.controlnet_model_path}")
+    # Load ControlNet
+    print(f"Loading ControlNet model: {args.controlnet_model_path}")
     controlnet = ControlNetModel.from_pretrained(
         args.controlnet_model_path, torch_dtype=dtype,
     )
 
-    # RBE: 区域边界增强模块
+    # RBE: Region Boundary Enhancement module
     if args.use_rbe:
         from models.rbe_controlnet import apply_rbe_to_controlnet
         controlnet = apply_rbe_to_controlnet(controlnet, input_resolution=args.resolution // 8)
         weight_path = os.path.join(args.controlnet_model_path, "rbe_controlnet.pth")
         if not os.path.exists(weight_path):
-            print(f"[WARN] 未找到 rbe_controlnet.pth，"
-                  f"RBE 模块将保持随机初始化 -> 推理结果可能不正确")
+            print(f"[WARN] rbe_controlnet.pth not found; "
+                  f"the RBE module will remain randomly initialized -> inference results may be incorrect")
             weight_path = None
         if weight_path is not None:
             state_dict = torch.load(weight_path, map_location="cpu", weights_only=True)
             missing, unexpected = controlnet.load_state_dict(state_dict, strict=False)
-            print(f"已加载 RBE 训练权重: {weight_path}")
+            print(f"Loaded RBE trained weights: {weight_path}")
             if missing:
-                print(f"  [info] missing keys: {len(missing)} (前 3 项: {missing[:3]})")
+                print(f"  [info] missing keys: {len(missing)} (first 3: {missing[:3]})")
             if unexpected:
-                print(f"  [info] unexpected keys: {len(unexpected)} (前 3 项: {unexpected[:3]})")
+                print(f"  [info] unexpected keys: {len(unexpected)} (first 3: {unexpected[:3]})")
         controlnet = controlnet.to(dtype=dtype)
 
-    # 创建 Pipeline
-    print(f"加载SD模型: {args.pretrained_model_name_or_path}")
+    # Create the pipeline
+    print(f"Loading SD model: {args.pretrained_model_name_or_path}")
     pipeline = StableDiffusionControlNetPipeline.from_pretrained(
         args.pretrained_model_name_or_path,
         controlnet=controlnet,
@@ -189,7 +189,7 @@ def load_pipeline(args):
     pipeline.scheduler = UniPCMultistepScheduler.from_config(pipeline.scheduler.config)
     pipeline = pipeline.to(device)
 
-    # 掩码引导交叉注意力
+    # Mask-guided cross-attention
     if args.use_mask_ca:
         from models.mask_cross_attention import apply_mask_guided_attention
         apply_mask_guided_attention(pipeline.unet)
@@ -203,14 +203,14 @@ def load_pipeline(args):
     return pipeline, device
 
 
-# ===================== 模式: dataset =====================
+# ===================== Mode: dataset =====================
 
 def run_dataset_mode(args):
-    """从SCTD数据集读取mask推理"""
+    """Read masks from the constructed dataset for inference"""
     pipeline, device = load_pipeline(args)
 
-    print("加载数据集...")
-    dataset = SCTDControlNetDataset(
+    print("Loading dataset...")
+    dataset = ConstructedControlNetDataset(
         data_dir=args.data_dir,
         resolution=args.resolution,
         prompt_prefix=args.prompt_prefix,
@@ -223,7 +223,7 @@ def run_dataset_mode(args):
     os.makedirs(args.output_dir, exist_ok=True)
 
     for category in args.categories:
-        print(f"\n处理类别: {category}")
+        print(f"\nProcessing category: {category}")
         category_indices = [
             i for i, s in enumerate(dataset.samples)
             if s["category"] == category
@@ -247,7 +247,7 @@ def run_dataset_mode(args):
                 cond_np = (cond_tensor.squeeze().numpy() * 255).astype("uint8")
             cond_image = Image.fromarray(cond_np)
 
-            # 二值掩码需要传 tensor 给 pipeline，避免 PIL 自动转 RGB 导致通道不匹配
+            # Binary masks must be passed as a tensor to the pipeline to avoid PIL auto-converting to RGB and causing a channel mismatch
             if args.use_colormap:
                 pipeline_cond = cond_image
             else:
@@ -306,13 +306,13 @@ def run_dataset_mode(args):
 
             cond_image.save(os.path.join(category_dir, f"{original_name}_condition.png"))
 
-    print(f"\n生成完成! 结果保存在: {args.output_dir}")
+    print(f"\nGeneration complete! Results saved to: {args.output_dir}")
 
 
-# ===================== 模式: mask =====================
+# ===================== Mode: mask =====================
 
 def run_mask_mode(args):
-    """从掩码图片文件/目录推理"""
+    """Inference from mask image files/directories"""
     pipeline, device = load_pipeline(args)
 
     os.makedirs(args.output_dir, exist_ok=True)
@@ -326,11 +326,11 @@ def run_mask_mode(args):
     elif mask_path.is_dir():
         mask_files = list(mask_path.glob("*.png")) + list(mask_path.glob("*.jpg"))
     else:
-        raise ValueError(f"无效的mask路径: {args.mask_path}")
+        raise ValueError(f"Invalid mask path: {args.mask_path}")
 
-    print(f"找到 {len(mask_files)} 个掩码文件")
+    print(f"Found {len(mask_files)} mask files")
 
-    for mask_file in tqdm(mask_files, desc="生成图像"):
+    for mask_file in tqdm(mask_files, desc="Generating images"):
         mask_image = Image.open(mask_file).convert('RGB')
         if mask_image.size != (args.resolution, args.resolution):
             mask_image = mask_image.resize((args.resolution, args.resolution), Image.LANCZOS)
@@ -382,20 +382,20 @@ def run_mask_mode(args):
                     comparison_dir, f"comparison_{mask_file.stem}_var{var_idx}.png"
                 ))
 
-    print(f"\n生成完成! 结果保存在: {args.output_dir}")
+    print(f"\nGeneration complete! Results saved to: {args.output_dir}")
 
 
-# ===================== 模式: xml =====================
+# ===================== Mode: xml =====================
 
 def run_xml_mode(args):
-    """从XML标注文件推理"""
+    """Inference from XML annotation files"""
     pipeline, device = load_pipeline(args)
 
     os.makedirs(args.output_dir, exist_ok=True)
 
-    print(f"解析XML文件: {args.xml_path}")
+    print(f"Parsing XML file: {args.xml_path}")
     xml_data = parse_xml_annotation(args.xml_path)
-    print(f"图像尺寸: {xml_data['width']}x{xml_data['height']}, 对象数: {len(xml_data['objects'])}")
+    print(f"Image size: {xml_data['width']}x{xml_data['height']}, object count: {len(xml_data['objects'])}")
 
     mask_image = create_mask_from_xml(xml_data, (args.resolution, args.resolution))
 
@@ -403,9 +403,9 @@ def run_xml_mode(args):
     if args.save_mask:
         mask_path = os.path.join(args.output_dir, f"{xml_stem}_mask.png")
         mask_image.save(mask_path)
-        print(f"保存掩码: {mask_path}")
+        print(f"Saved mask: {mask_path}")
 
-    # 生成 prompt
+    # Generate prompt
     if args.categories:
         categories = args.categories
     else:
@@ -413,7 +413,7 @@ def run_xml_mode(args):
             obj['name'] for obj in xml_data['objects'] if 'shadow' not in obj['name']
         ]))
     prompt = args.prompt_prefix + (" and ".join(categories) if categories else "object")
-    print(f"使用prompt: {prompt}")
+    print(f"Using prompt: {prompt}")
 
     for var_idx in range(args.num_variations_per_image):
         unique_seed = args.seed + var_idx
@@ -431,105 +431,105 @@ def run_xml_mode(args):
 
         output.save(os.path.join(args.output_dir, f"{xml_stem}_generated_var{var_idx}.png"))
 
-    print(f"\n生成完成! 结果保存在: {args.output_dir}")
+    print(f"\nGeneration complete! Results saved to: {args.output_dir}")
 
 
-# ===================== 参数解析 =====================
+# ===================== Argument parsing =====================
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="ControlNet-Seg 推理脚本")
+    parser = argparse.ArgumentParser(description="ControlNet-Seg inference script")
 
-    # 推理模式
+    # Inference mode
     parser.add_argument(
         "--mode",
         type=str,
         default="dataset",
         choices=["dataset", "mask", "xml"],
-        help="推理模式: dataset(从数据集), mask(从掩码图片), xml(从XML标注)",
+        help="Inference mode: dataset (from dataset), mask (from mask images), xml (from XML annotations)",
     )
 
-    # 模型参数
+    # Model parameters
     parser.add_argument(
         "--pretrained_model_name_or_path",
         type=str,
         default="runwayml/stable-diffusion-v1-5",
-        help="预训练SD模型路径",
+        help="Path to the pretrained SD model",
     )
     parser.add_argument(
         "--controlnet_model_path",
         type=str,
         required=True,
-        help="训练好的ControlNet模型路径",
+        help="Path to the trained ControlNet model",
     )
 
-    # 输出参数
+    # Output parameters
     parser.add_argument("--output_dir", type=str, default="./outputs/controlnet")
     parser.add_argument("--resolution", type=int, default=512)
 
-    # dataset 模式参数
-    parser.add_argument("--data_dir", type=str, default="./dataset/SCTD", help="数据集目录路径")
+    # dataset mode parameters
+    parser.add_argument("--data_dir", type=str, default="./dataset/ConstructedDataset", help="Path to the dataset root directory")
     parser.add_argument("--split", type=str, default=None, choices=["train", "test"],
-        help="使用数据集划分 (train/test)，默认None=全部数据")
+        help="Which dataset split to use (train/test); default None = all data")
     parser.add_argument("--split_file", type=str, default=None,
-        help="split.json 路径 (默认 data_dir/split.json)")
+        help="Path to split.json (default: data_dir/split.json)")
     parser.add_argument("--categories", nargs="+", default=["aircraft", "ship", "human", "artificial fishing reef"])
     parser.add_argument("--num_images_per_category", type=int, default=None,
-                        help="每个类别生成的图像数 (None=全部)")
+                        help="Number of images to generate per category (None = all)")
     parser.add_argument("--prompt_prefix", type=str, default="an underwater sonar image of ")
     parser.add_argument("--use_colormap", action="store_true", default=True)
     parser.add_argument("--use_binary_mask", action="store_true")
     parser.add_argument("--no_shadow", action="store_true",
-                        help="掩码中不包含阴影区域，仅保留目标和背景")
+                        help="Exclude shadow regions from the mask, keeping only objects and background")
 
-    # mask 模式参数
-    parser.add_argument("--mask_path", type=str, help="掩码图片路径 (文件或目录)")
+    # mask mode parameters
+    parser.add_argument("--mask_path", type=str, help="Path to mask image (file or directory)")
     parser.add_argument("--prompt", type=str, default="an underwater sonar image of ship",
-                        help="mask模式的文本提示")
+                        help="Text prompt for mask mode")
 
-    # xml 模式参数
-    parser.add_argument("--xml_path", type=str, help="XML标注文件路径")
-    parser.add_argument("--save_mask", action="store_true", help="保存生成的掩码图像")
+    # xml mode parameters
+    parser.add_argument("--xml_path", type=str, help="Path to the XML annotation file")
+    parser.add_argument("--save_mask", action="store_true", help="Save the generated mask image")
 
-    # 生成参数
-    parser.add_argument("--num_variations_per_image", type=int, default=4, help="每个mask生成的变体数")
+    # Generation parameters
+    parser.add_argument("--num_variations_per_image", type=int, default=4, help="Number of variations to generate per mask")
     parser.add_argument("--num_inference_steps", type=int, default=50)
     parser.add_argument("--guidance_scale", type=float, default=7.5)
     parser.add_argument("--controlnet_conditioning_scale", type=float, default=1.0,
-                        help="ControlNet条件强度 (0-1)")
+                        help="ControlNet conditioning strength (0-1)")
     parser.add_argument("--seed", type=int, default=42)
 
-    # 模块开关 (与训练脚本保持一致)
+    # Module switches (kept consistent with the training script)
     parser.add_argument("--use_rbe", dest="use_rbe", action="store_true",
-                        help="使用 RBE 区域边界增强模块")
-    parser.add_argument("--use_mask_ca", action="store_true", help="使用掩码引导交叉注意力 (MaskCA)")
-    parser.add_argument("--ca_obj_boost", type=float, default=0.5, help="物体区域交叉注意力增强系数")
-    parser.add_argument("--ca_shadow_boost", type=float, default=0.3, help="阴影区域交叉注意力增强系数")
-    parser.add_argument("--ca_layered", action="store_true", help="使用分层 boost")
-    parser.add_argument("--ca_mild", action="store_true", help="使用温和分层 boost")
-    parser.add_argument("--ca_timestep_gate", action="store_true", help="使用时步门控")
-    parser.add_argument("--ca_gate_mid", type=float, default=400.0, help="时步门控 sigmoid 中心点")
-    parser.add_argument("--ca_gate_temp", type=float, default=100.0, help="时步门控 sigmoid 温度")
+                        help="Use the RBE Region Boundary Enhancement module")
+    parser.add_argument("--use_mask_ca", action="store_true", help="Use mask-guided cross-attention (MaskCA)")
+    parser.add_argument("--ca_obj_boost", type=float, default=0.5, help="Cross-attention boost factor for object regions")
+    parser.add_argument("--ca_shadow_boost", type=float, default=0.3, help="Cross-attention boost factor for shadow regions")
+    parser.add_argument("--ca_layered", action="store_true", help="Use layered boost")
+    parser.add_argument("--ca_mild", action="store_true", help="Use mild layered boost")
+    parser.add_argument("--ca_timestep_gate", action="store_true", help="Use timestep gating")
+    parser.add_argument("--ca_gate_mid", type=float, default=400.0, help="Center point of the timestep gating sigmoid")
+    parser.add_argument("--ca_gate_temp", type=float, default=100.0, help="Temperature of the timestep gating sigmoid")
     parser.add_argument("--ca_boost_scale", type=float, default=1.0,
-                        help="MapCA boost 全局缩放因子 (0=关闭MapCA效果, 1=原始, <1=减弱, >1=增强)")
-    # 其他参数
+                        help="Global scaling factor for the MapCA boost (0=disable MapCA effect, 1=original, <1=weaken, >1=strengthen)")
+    # Other parameters
     parser.add_argument("--mixed_precision", type=str, default="fp16", choices=["no", "fp16", "bf16"])
-    parser.add_argument("--save_comparison", action="store_true", help="保存对比图")
+    parser.add_argument("--save_comparison", action="store_true", help="Save the comparison image")
 
     args = parser.parse_args()
 
     if args.use_binary_mask:
         args.use_colormap = False
 
-    # 校验模式参数
+    # Validate mode-specific parameters
     if args.mode == "mask" and not args.mask_path:
-        parser.error("mask模式需要 --mask_path 参数")
+        parser.error("mask mode requires the --mask_path argument")
     if args.mode == "xml" and not args.xml_path:
-        parser.error("xml模式需要 --xml_path 参数")
+        parser.error("xml mode requires the --xml_path argument")
 
     return args
 
 
-# ===================== 入口 =====================
+# ===================== Entry point =====================
 
 def main():
     args = parse_args()

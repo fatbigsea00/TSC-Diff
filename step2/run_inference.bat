@@ -9,7 +9,7 @@ set REPO_ROOT=%~dp0..
 
 REM ---- paths (edit to your environment) ----
 set SD_BASE=%REPO_ROOT%\step1\checkpoints\sd-dfdb
-set DATA_DIR=%REPO_ROOT%\dataset\SCTD
+set DATA_DIR=%REPO_ROOT%\dataset\ConstructedDataset
 set SPLIT_FILE=%DATA_DIR%\split_4cat_70_plus_afr.json
 set CN_DIR=%~dp0checkpoints\controlnet_full
 set OUT_DIR=%~dp0outputs\full

@@ -1,29 +1,29 @@
 # TSC-Diff
 
-TSC-Diff 是一个面向**侧扫声呐图像生成 / 数据增强**的两阶段扩散模型框架。第一阶段在声呐数据上微调 Stable Diffusion 以学习声呐图像分布;第二阶段训练一个受分割图(segmentation map)控制的 ControlNet,按指定类别与位置生成完整声呐图像。
+TSC-Diff is a two-stage diffusion framework for **side-scan sonar image generation / data augmentation**. Stage 1 fine-tunes Stable Diffusion on sonar data to learn the sonar image distribution; Stage 2 trains a ControlNet conditioned on a segmentation map to generate complete sonar images at specified categories and locations.
 
-本仓库为**论文配套代码发布版**。当前版本提供方法的核心代码及部分训练样本示例;论文录用后,我们将公开完整的实验代码与训练数据集。
+This repository is the **code release accompanying the paper**. The current version provides the core method code together with a small set of training sample illustrations; the full experiment code and training datasets will be released after the paper is accepted.
 
-## 目录结构
+## Repository Structure
 
 ```
 TSC-Diff/
 ├── requirements.txt
-├── step1/                       # Stage 1: SD 微调 + DFDB
+├── step1/                       # Stage 1: SD fine-tuning + DFDB
 │   ├── utils/train.py
 │   ├── utils/dataset.py
-│   ├── plugins/DSR.py           # PFA / LFA 增强模块
+│   ├── plugins/DSR.py           # PFA / LFA augmentation modules
 │   └── run_train_dfdb.bat
 └── step2/                       # Stage 2: ControlNet (TSCG)
-    ├── models/                  # RBE / MapCA / MaskCA / 兼容回退
+    ├── models/                  # RBE / MapCA / MaskCA
     ├── utils/train_controlnet.py
     ├── utils/inference_controlnet.py
     ├── utils/controlnet_dataset.py
-    ├── run_train.bat            # 训练 + 推理
-    └── run_inference.bat        # 仅推理
+    ├── run_train.bat            # train + inference
+    └── run_inference.bat        # inference only
 ```
 
-## 环境安装
+## Installation
 
 ```bash
 conda create -n tsc-diff python=3.10 -y
@@ -31,70 +31,70 @@ conda activate tsc-diff
 pip install -r requirements.txt
 ```
 
-## 数据集
+## Datasets
 
-本文涉及两个侧扫声呐数据集:**SCTD**(方法训练/推理所用)与 **SSTar**(本文构建的侧扫声呐目标数据集)。两者均仅在本仓库提供**少量样本实例**,**完整数据集、类别定义、标注与划分等信息将在论文录用后公开。**
+This work involves two side-scan sonar datasets: the **constructed dataset** (used for training/inference of the method) and **SSTar** (the side-scan sonar target dataset constructed in this work). Only a small set of sample instances is provided in this repository for both; the **full datasets, category definitions, annotations, and splits will be released after the paper is accepted.**
 
-### 1. SCTD
+### 1. Constructed Dataset
 
-TSC-Diff 两阶段训练与推理直接使用的声呐数据集,含 `aircraft / ship / human / artificial fishing reef` 四类,每个样本由「原始图像 + labelme 分割标注」组成,标注经渲染得到 ControlNet 所需的分割条件图。
+The sonar dataset directly used by the two-stage TSC-Diff training and inference. It contains four categories (`aircraft / ship / human / artificial fishing reef`); each sample consists of an original image plus a labelme segmentation annotation, which is rendered into the segmentation condition map required by ControlNet.
 
-> 本发布版提供样本示例(见 [dataset/SCTD/samples/](dataset/SCTD/samples/),每类 3 组「原图 + 分割条件图」)。
+> This release provides sample illustrations (see [dataset/ConstructedDataset/samples/](dataset/ConstructedDataset/samples/), 3 pairs of "image + segmentation condition map" per category).
 
-完整数据集预期目录结构:
+Expected directory layout of the full dataset:
 
 ```
-dataset/SCTD/
-├── samples/                     # 已提供:每类少量样本示例(图 + 掩码)
-├── aircraft/                    # 待补充:各类别图像 + 标注
+dataset/ConstructedDataset/
+├── samples/                     # provided: a few sample illustrations per category (image + mask)
+├── aircraft/                    # to be added: per-category images + annotations
 ├── ship/
 ├── human/
 ├── artificial fishing reef/
-├── metadata.jsonl               # 图像-提示词-掩码元信息
-└── split_4cat_70_plus_afr.json  # train/test 划分
+├── metadata.jsonl               # image-prompt-mask metadata
+└── split_4cat_70_plus_afr.json  # train/test split
 ```
 
 ### 2. SSTar (Side-Scan Sonar Targets)
 
-本文构建的侧扫声呐目标数据集,采集自真实侧扫声呐作业数据,覆盖多种典型水下目标。完整数据集共 **489 张**图像,按目标类型分为 **5 类**:
+The side-scan sonar target dataset constructed in this work, collected from real side-scan sonar surveys and covering several typical underwater targets. The full dataset contains **489 images** grouped into **5 target categories**:
 
-| 类别(原始编码) | 完整数据量 | 本仓库样本数 |
-|------------------|-----------|--------------|
+| Category (original code) | Full size | Samples in repo |
+|--------------------------|-----------|-----------------|
 | RGYJ | 389 | 4 |
 | SXJS | 54 | 4 |
 | MTZ | 29 | 4 |
 | JZX | 15 | 4 |
-| shipwreck(沉船) | 2 | 2 |
-| **合计** | **489** | **18** |
+| shipwreck | 2 | 2 |
+| **Total** | **489** | **18** |
 
-> 本发布版仅提供少量样本实例(见 [dataset/SSTar/samples/](dataset/SSTar/samples/),详见 [dataset/SSTar/README.md](dataset/SSTar/README.md))。
+> This release provides only a few sample instances (see [dataset/SSTar/samples/](dataset/SSTar/samples/); details in [dataset/SSTar/README.md](dataset/SSTar/README.md)).
 
-数据特点:真实侧扫声呐影像(非仿真),单波段声呐强度图,呈典型成像特征(目标高亮回波 + 后方声学阴影 + 海底背景纹理),各图分辨率不固定。
+Characteristics: real side-scan sonar imagery (not synthetic), single-band sonar intensity images with typical imaging characteristics (bright target echo + acoustic shadow behind the target + seabed background texture), with varying per-image resolution.
 
 ```
 dataset/SSTar/
-├── samples/                 # 已提供:每类少量样本实例
+├── samples/                 # provided: a few sample instances per category
 │   ├── RGYJ/  SXJS/  MTZ/  JZX/  shipwreck/
-├── <各类别完整图像>          # 待补充
-├── metadata.jsonl           # 待补充:图像-提示词-标注元信息
-└── split.json               # 待补充:train/test 划分
+├── <full per-category images>   # to be added
+├── metadata.jsonl           # to be added: image-prompt-annotation metadata
+└── split.json               # to be added: train/test split
 ```
 
-## 使用方法
+## Usage
 
-### Stage 1 — SD 微调(DFDB)
+### Stage 1 — SD fine-tuning (DFDB)
 
-需先准备 `stable-diffusion-v1-5` 基础权重(放到 `pretrained/sd-v1-5` 或修改脚本中的 `SD_BASE`)。
+First prepare the `stable-diffusion-v1-5` base weights (place them under `pretrained/sd-v1-5` or edit `SD_BASE` in the script).
 
 ```bash
 # Windows
 step1\run_train_dfdb.bat
 
-# 或手动:
+# Or manually:
 accelerate launch --mixed_precision=fp16 step1/utils/train.py \
   --pretrained_model_name_or_path pretrained/sd-v1-5 \
-  --train_data_dir dataset/SCTD \
-  --split train --split_file dataset/SCTD/split_4cat_70_plus_afr.json \
+  --train_data_dir dataset/ConstructedDataset \
+  --split train --split_file dataset/ConstructedDataset/split_4cat_70_plus_afr.json \
   --output_dir step1/checkpoints/sd-dfdb \
   --resolution 512 --train_batch_size 4 --max_train_steps 5000 \
   --learning_rate 1e-5 --gradient_checkpointing \
@@ -102,26 +102,26 @@ accelerate launch --mixed_precision=fp16 step1/utils/train.py \
   --use_lfa --lfa_alpha 0.05 --lfa_prob 0.15
 ```
 
-### Stage 2 — ControlNet 训练 + 推理(TSCG)
+### Stage 2 — ControlNet training + inference (TSCG)
 
 ```bash
-# Windows: 训练 + 推理一键
+# Windows: train + inference in one shot
 step2\run_train.bat
 
-# 仅推理(已有训练好的 ControlNet)
+# Inference only (with an already trained ControlNet)
 step2\run_inference.bat
 ```
 
-推理 `inference_controlnet.py` 支持三种 `--mode`:
+The inference script `inference_controlnet.py` supports three `--mode` values:
 
-| 模式 | 用途 | 关键参数 |
-|------|------|----------|
-| `dataset` | 从数据集划分批量生成 | `--data_dir` `--split` `--categories` |
-| `mask` | 从掩码图片生成 | `--mask_path` `--prompt` |
-| `xml` | 从 XML 标注生成 | `--xml_path` |
+| Mode | Purpose | Key arguments |
+|------|---------|---------------|
+| `dataset` | Batch generation from a dataset split | `--data_dir` `--split` `--categories` |
+| `mask` | Generation from a mask image | `--mask_path` `--prompt` |
+| `xml` | Generation from an XML annotation | `--xml_path` |
 
-## 说明
+## Notes
 
-- 脚本默认使用相对路径(以脚本所在目录为基准),路径变量集中在每个 `.bat` 顶部,按需修改。
-- Stage 2 依赖 Stage 1 产出的微调 SD 模型作为基础模型。
-- 显存参考:训练约 10–12GB,推理约 6–8GB。
+- Scripts use relative paths by default (resolved from the script directory); path variables are grouped at the top of each `.bat` file and can be edited as needed.
+- Stage 2 depends on the fine-tuned SD model produced by Stage 1 as its base model.
+- GPU memory: ~10-12GB for training, ~6-8GB for inference.

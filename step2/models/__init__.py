@@ -1,4 +1,4 @@
 """
-SD Inpainting 模型模块
-按需导入，避免缺少依赖时阻塞其他模块。
+Model modules.
+Imported on demand to avoid blocking other modules when a dependency is missing.
 """

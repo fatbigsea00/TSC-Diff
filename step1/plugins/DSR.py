@@ -1,11 +1,13 @@
 # Dual-space Frequency Distribution Broadening (DFDB)
 # ======================================================
-# 双空间频率分布扩展框架，通过像素空间与潜空间的频域幅度扰动，
-# 扩展小样本声呐图像训练中的特征分布，提升 diffusion 模型的鲁棒性与泛化能力。
+# A dual-space frequency distribution broadening framework that, through frequency-domain
+# amplitude perturbation in both pixel space and latent space, broadens the feature
+# distribution in few-shot sonar image training, improving the robustness and generalization
+# of the diffusion model.
 #
-# 包含两个互补模块：
-#   PFA (Pixel-level Frequency Augmentation)  — 像素级频率增强（原 DoublePerturb）
-#   LFA (Latent-level Frequency Augmentation) — 潜空间频率增强（VAE 编码后）
+# Contains two complementary modules:
+#   PFA (Pixel-level Frequency Augmentation)  — pixel-level frequency augmentation (formerly DoublePerturb)
+#   LFA (Latent-level Frequency Augmentation) — latent-space frequency augmentation (after VAE encoding)
 
 import random
 import numpy as np
@@ -17,7 +19,7 @@ import torch.nn.functional as F
 
 class RandomConv(nn.Module):
     """
-    随机卷积模块：生成随机卷积核，对特征进行全局扰动
+    Random convolution module: generates a random convolution kernel to apply global perturbation to features.
     """
     def __init__(self, in_channels=3, kernel_size=3, std=0.1):
         super().__init__()
@@ -41,7 +43,7 @@ class RandomConv(nn.Module):
 
 class MaskDilator(nn.Module):
     """
-    掩码膨胀模块：扩大前景掩码范围，确保前景区域的完整性
+    Mask dilation module: expands the foreground mask region to ensure the integrity of the foreground area.
     """
     def __init__(self, kernel_size=3):
         super().__init__()
@@ -68,17 +70,20 @@ class MaskDilator(nn.Module):
 
 
 # =====================================================================
-# PFA: Pixel-level Frequency Augmentation (原 Dual Style Randomization)
+# PFA: Pixel-level Frequency Augmentation (formerly Dual Style Randomization)
 # =====================================================================
 class DoublePerturb(nn.Module):
     """
-    像素级频率增强 (PFA / Pixel-level Frequency Augmentation)
+    Pixel-level Frequency Augmentation (PFA)
 
-    在 VAE 编码前对 RGB 像素图像进行频域幅度扰动：
-      - 前景路径：从随机选取的超像素区域借用幅度，与前景区域的幅度混合
-      - 全局路径：用随机卷积生成替代幅度，与原幅度融合
-    保留相位（结构不变），只扰动幅度（扩展低层纹理分布），
-    从而在小样本条件下丰富像素级特征多样性，降低过拟合风险。
+    Applies frequency-domain amplitude perturbation to the RGB pixel image before VAE encoding:
+      - Foreground path: borrows amplitude from a randomly selected superpixel region and
+        blends it with the amplitude of the foreground region.
+      - Global path: generates a substitute amplitude via random convolution and fuses it
+        with the original amplitude.
+    The phase is preserved (structure unchanged) and only the amplitude is perturbed (broadening
+    the low-level texture distribution), thereby enriching pixel-level feature diversity under
+    few-shot conditions and reducing the risk of overfitting.
     """
     def __init__(self, feat_dim=3, random_size=3, random_std=0.1, prob=1.0, mask_size=9):
         super(DoublePerturb, self).__init__()
@@ -172,23 +177,26 @@ class DoublePerturb(nn.Module):
 # =====================================================================
 class LatentFrequencyPerturb(nn.Module):
     """
-    潜空间频率增强 (LFA / Latent-level Frequency Augmentation)
+    Latent-level Frequency Augmentation (LFA)
 
-    在 VAE 编码后的潜空间 z ∈ R^{B×4×h×w} 上进行频域幅度扰动：
-      1. 对 z 做 2D FFT，分离幅度 A(z) 和相位 P(z)
-      2. 生成高斯噪声 δ ~ N(0, α²)，乘以前景自适应系数 (1 + M_down)
-      3. 扰动幅度 A'(z) = A(z) + δ
-      4. 用 A'(z) 与原相位 P(z) 重建 z' = IFFT(A'(z) · e^{jP(z)})
+    Applies frequency-domain amplitude perturbation on the VAE-encoded latent z ∈ R^{B×4×h×w}:
+      1. Perform a 2D FFT on z, separating amplitude A(z) and phase P(z).
+      2. Generate Gaussian noise δ ~ N(0, α²) and multiply it by the foreground-adaptive
+         coefficient (1 + M_down).
+      3. Perturb the amplitude: A'(z) = A(z) + δ.
+      4. Reconstruct z' = IFFT(A'(z) · e^{jP(z)}) using A'(z) and the original phase P(z).
 
-    保留相位（保持高层语义结构），扰动幅度（扩展语义特征分布），
-    使模型学到更广泛的潜空间分布，增强对新样本的泛化能力。
+    The phase is preserved (maintaining the high-level semantic structure) while the amplitude
+    is perturbed (broadening the semantic feature distribution), enabling the model to learn a
+    wider latent-space distribution and improving generalization to novel samples.
 
-    与 PFA 互补：PFA 在像素空间扩展低层纹理分布，LFA 在潜空间扩展高层语义分布，
-    两者组合构成 DFDB (Dual-space Frequency Distribution Broadening) 框架。
+    Complementary to PFA: PFA broadens the low-level texture distribution in pixel space, while
+    LFA broadens the high-level semantic distribution in latent space. Together they form the
+    DFDB (Dual-space Frequency Distribution Broadening) framework.
 
     Args:
-        alpha: 扰动强度系数，控制噪声幅度 (默认 0.1)
-        prob:  扰动触发概率 (默认 0.3)
+        alpha: perturbation strength coefficient that controls the noise amplitude (default 0.1)
+        prob:  perturbation trigger probability (default 0.3)
     """
     def __init__(self, alpha=0.1, prob=0.3):
         super().__init__()
@@ -198,11 +206,11 @@ class LatentFrequencyPerturb(nn.Module):
     def forward(self, z, mask=None):
         """
         Args:
-            z:    VAE 编码后的潜变量 [B, C, h, w]  (通常 C=4, h=w=64)
-            mask: 前景掩码 [B, H, W] 或 [B, 1, H, W]，用于自适应加权
-                  若为 None 则全局均匀扰动
+            z:    VAE-encoded latent variable [B, C, h, w]  (typically C=4, h=w=64)
+            mask: foreground mask [B, H, W] or [B, 1, H, W], used for adaptive weighting;
+                  if None, uniform global perturbation is applied
         Returns:
-            z_aug: 扰动后的潜变量，形状同 z
+            z_aug: perturbed latent variable, same shape as z
         """
         if random.random() > self.prob:
             return z

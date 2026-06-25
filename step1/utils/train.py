@@ -1,19 +1,19 @@
 #!/usr/bin/env python
 # coding=utf-8
 """
-Stable Diffusion Text-to-Image 微调脚本
+Stable Diffusion Text-to-Image fine-tuning script
 
-支持两种微调模式（通过 --use_lora 选择）：
-- 默认：全量微调（所有 UNet 参数可训练）
-- --use_lora：LoRA 微调（仅训练 LoRA adapter 参数）
+Supports two fine-tuning modes (selected via --use_lora):
+- Default: full fine-tuning (all UNet parameters are trainable)
+- --use_lora: LoRA fine-tuning (only LoRA adapter parameters are trained)
 
-集成 DFDB 双空间频率分布扩展框架：
-- PFA (--use_dsr): 像素级频率增强，VAE 编码前对 RGB 图像做频域幅度扰动
-- LFA (--use_lfa): 潜空间频率增强，VAE 编码后对 latent 做频域幅度扰动
-两者组合 (DFDB) 从像素空间和潜空间两个层面扩展特征分布，
-提升小样本声呐图像训练的鲁棒性与泛化能力。
+Integrates the DFDB dual-space frequency distribution expansion framework:
+- PFA (--use_dsr): pixel-level frequency augmentation, applying frequency-domain amplitude perturbation to RGB images before VAE encoding
+- LFA (--use_lfa): latent-space frequency augmentation, applying frequency-domain amplitude perturbation to the latent after VAE encoding
+Combining the two (DFDB) expands the feature distribution at both the pixel-space and latent-space levels,
+improving the robustness and generalization of few-shot sonar image training.
 
-基于 diffusers 官方 train_text_to_image.py，集成 EMA、SCTD 数据集等功能。
+Based on the official diffusers train_text_to_image.py, with EMA, the constructed dataset, and other features integrated.
 """
 
 import argparse
@@ -53,17 +53,17 @@ from diffusers.utils.hub_utils import load_or_create_model_card, populate_model_
 from diffusers.utils.import_utils import is_xformers_available
 from diffusers.utils.torch_utils import is_compiled_module
 
-# LoRA 相关
+# LoRA-related
 from peft import LoraConfig
 from peft.utils import get_peft_model_state_dict
 from diffusers.training_utils import cast_training_params
 from diffusers.utils import convert_state_dict_to_diffusers
 
-# DSR & SCTD dataset
+# DSR plugins & constructed dataset
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__))))
 from plugins.DSR import DoublePerturb, LatentFrequencyPerturb
-from dataset import SCTDInpaintingDataset
+from dataset import ConstructedInpaintingDataset
 
 try:
     from skimage.segmentation import slic as _slic_fn
@@ -79,17 +79,17 @@ def _slic_spixel_mask(
     sigma: float = 1.0
 ) -> torch.Tensor:
     """
-    使用 SLIC 算法生成超像素掩码（在原始 RGB 图像上运行）。
+    Generate a superpixel mask using the SLIC algorithm (run on the original RGB image).
 
     Args:
-        image: [B, 3, H, W]，范围 [0, 1]
-        n_segments: 超像素数量
+        image: [B, 3, H, W], range [0, 1]
+        n_segments: number of superpixels
     Returns:
         spixel_mask: [B, 1, H, W]
     """
     B, C, H, W = image.shape
     if not _SLIC_AVAILABLE:
-        # 降级到网格超像素
+        # Fall back to grid-based superpixels
         grid_size = 8
         h_idx = torch.arange(H, device=image.device) * grid_size // H
         w_idx = torch.arange(W, device=image.device) * grid_size // W
@@ -204,7 +204,7 @@ def log_validation(
     )
 
     if args.use_lora and is_final_validation:
-        # 最终验证：从 pretrained 加载 pipeline 然后加载 LoRA 权重
+        # Final validation: load the pipeline from pretrained, then load the LoRA weights
         pipeline = StableDiffusionPipeline.from_pretrained(
             args.pretrained_model_name_or_path,
             revision=args.revision,
@@ -270,34 +270,34 @@ def log_validation(
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="SD Text-to-Image 微调脚本（支持全量/LoRA）")
+    parser = argparse.ArgumentParser(description="SD Text-to-Image fine-tuning script (supports full / LoRA)")
 
-    # ── 微调模式 ──
+    # ── Fine-tuning mode ──
     parser.add_argument(
         "--use_lora",
         action="store_true",
-        help="使用 LoRA 微调（默认全量微调）",
+        help="Use LoRA fine-tuning (full fine-tuning by default)",
     )
     parser.add_argument(
         "--lora_rank",
         type=int,
         default=4,
-        help="LoRA rank（仅 --use_lora 时生效）",
+        help="LoRA rank (only effective with --use_lora)",
     )
     parser.add_argument(
         "--lora_alpha",
         type=int,
         default=4,
-        help="LoRA alpha（仅 --use_lora 时生效）",
+        help="LoRA alpha (only effective with --use_lora)",
     )
     parser.add_argument(
         "--lora_dropout",
         type=float,
         default=0.0,
-        help="LoRA dropout（仅 --use_lora 时生效）",
+        help="LoRA dropout (only effective with --use_lora)",
     )
 
-    # ── 模型 ──
+    # ── Model ──
     parser.add_argument(
         "--input_perturbation", type=float, default=0, help="The scale of input perturbation. Recommended 0.1."
     )
@@ -322,7 +322,7 @@ def parse_args():
         help="Variant of the model files of the pretrained model identifier from huggingface.co/models, 'e.g.' fp16",
     )
 
-    # ── 数据 ──
+    # ── Data ──
     parser.add_argument(
         "--dataset_name",
         type=str,
@@ -375,7 +375,7 @@ def parse_args():
         help=("A set of prompts evaluated every `--validation_epochs` and logged to `--report_to`."),
     )
 
-    # ── 输出 ──
+    # ── Output ──
     parser.add_argument(
         "--output_dir",
         type=str,
@@ -390,7 +390,7 @@ def parse_args():
     )
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
 
-    # ── 图像预处理 ──
+    # ── Image preprocessing ──
     parser.add_argument(
         "--resolution",
         type=int,
@@ -415,7 +415,7 @@ def parse_args():
         help="whether to randomly flip images horizontally",
     )
 
-    # ── 训练超参 ──
+    # ── Training hyperparameters ──
     parser.add_argument(
         "--train_batch_size", type=int, default=16, help="Batch size (per device) for the training dataloader."
     )
@@ -483,7 +483,7 @@ def parse_args():
         help="Dream detail preservation factor p (should be greater than 0; default=1.0, as suggested in the paper)",
     )
 
-    # ── 优化器 ──
+    # ── Optimizer ──
     parser.add_argument(
         "--use_8bit_adam", action="store_true", help="Whether or not to use 8-bit Adam from bitsandbytes."
     )
@@ -536,7 +536,7 @@ def parse_args():
         help="The name of the repository to keep in sync with the local `output_dir`.",
     )
 
-    # ── 日志与追踪 ──
+    # ── Logging and tracking ──
     parser.add_argument(
         "--logging_dir",
         type=str,
@@ -594,7 +594,7 @@ def parse_args():
         ),
     )
 
-    # ── 其他 ──
+    # ── Other ──
     parser.add_argument(
         "--enable_xformers_memory_efficient_attention", action="store_true", help="Whether or not to use xformers."
     )
@@ -615,48 +615,48 @@ def parse_args():
         ),
     )
 
-    # ── 数据集划分 ──
+    # ── Dataset split ──
     parser.add_argument("--split", type=str, default=None, choices=["train", "test"],
-        help="使用数据集划分 (train/test)，默认None=全部数据")
+        help="Use a dataset split (train/test); default None = all data")
     parser.add_argument("--split_file", type=str, default=None,
-        help="split.json 路径 (默认 train_data_dir/split.json)")
+        help="Path to split.json (default train_data_dir/split.json)")
 
-    # ── DSR 增强参数 ──
+    # ── DSR augmentation parameters ──
     parser.add_argument(
         "--use_dsr",
         action="store_true",
-        help="在 VAE encode 前对图像做 DSR（双风格随机化）增强",
+        help="Apply DSR (dual-style randomization) augmentation to images before VAE encoding",
     )
     parser.add_argument(
         "--dsr_prob",
         type=float,
         default=0.5,
-        help="DSR 增强触发概率（前景/全局各自独立判断），默认 0.5",
+        help="DSR augmentation trigger probability (foreground/global judged independently), default 0.5",
     )
     parser.add_argument(
         "--dsr_slic_segments",
         type=int,
         default=64,
-        help="SLIC 超像素数量，默认 64",
+        help="Number of SLIC superpixels, default 64",
     )
 
-    # ── LFA (Latent-level Frequency Augmentation) 参数 ──
+    # ── LFA (Latent-level Frequency Augmentation) parameters ──
     parser.add_argument(
         "--use_lfa",
         action="store_true",
-        help="在 VAE encode 后对潜变量做 LFA（潜空间频率增强），与 PFA 组成 DFDB 框架",
+        help="Apply LFA (latent-space frequency augmentation) to the latent after VAE encoding; together with PFA forms the DFDB framework",
     )
     parser.add_argument(
         "--lfa_alpha",
         type=float,
         default=0.1,
-        help="LFA 频率幅度扰动强度 (默认 0.1)",
+        help="LFA frequency amplitude perturbation strength (default 0.1)",
     )
     parser.add_argument(
         "--lfa_prob",
         type=float,
         default=0.3,
-        help="LFA 增强触发概率 (默认 0.3)",
+        help="LFA augmentation trigger probability (default 0.3)",
     )
 
     args = parser.parse_args()
@@ -766,9 +766,9 @@ def main():
     vae.requires_grad_(False)
     text_encoder.requires_grad_(False)
 
-    # ── 微调模式配置 ──
+    # ── Fine-tuning mode configuration ──
     if args.use_lora:
-        # LoRA 模式：冻结 UNet，添加 LoRA adapter
+        # LoRA mode: freeze the UNet and add a LoRA adapter
         unet.requires_grad_(False)
 
         unet_lora_config = LoraConfig(
@@ -796,30 +796,30 @@ def main():
             cast_training_params(unet, dtype=torch.float32)
 
         trainable_params = list(filter(lambda p: p.requires_grad, unet.parameters()))
-        logger.info(f"LoRA 模式: rank={args.lora_rank}, alpha={args.lora_alpha}, "
-                     f"可训练参数={sum(p.numel() for p in trainable_params):,}")
+        logger.info(f"LoRA mode: rank={args.lora_rank}, alpha={args.lora_alpha}, "
+                     f"trainable parameters={sum(p.numel() for p in trainable_params):,}")
     else:
-        # 全量微调模式
+        # Full fine-tuning mode
         unet.train()
         trainable_params = list(unet.parameters())
-        logger.info(f"全量微调模式: 可训练参数={sum(p.numel() for p in trainable_params):,}")
+        logger.info(f"Full fine-tuning mode: trainable parameters={sum(p.numel() for p in trainable_params):,}")
 
-    # ── PFA 模块初始化 (Pixel-level Frequency Augmentation, 原 DSR) ──
+    # ── PFA module initialization (Pixel-level Frequency Augmentation, formerly DSR) ──
     dsr = None
     if args.use_dsr:
         dsr = DoublePerturb(feat_dim=3, random_size=3, random_std=0.1, prob=args.dsr_prob, mask_size=9)
         dsr.eval()
-        logger.info(f"PFA/DSR 增强已启用 (prob={args.dsr_prob}, slic_segments={args.dsr_slic_segments})")
+        logger.info(f"PFA/DSR augmentation enabled (prob={args.dsr_prob}, slic_segments={args.dsr_slic_segments})")
 
-    # ── LFA 模块初始化 (Latent-level Frequency Augmentation) ──
+    # ── LFA module initialization (Latent-level Frequency Augmentation) ──
     lfa = None
     if args.use_lfa:
         lfa = LatentFrequencyPerturb(alpha=args.lfa_alpha, prob=args.lfa_prob)
         lfa.eval()
-        logger.info(f"LFA 增强已启用 (alpha={args.lfa_alpha}, prob={args.lfa_prob})")
+        logger.info(f"LFA augmentation enabled (alpha={args.lfa_alpha}, prob={args.lfa_prob})")
 
     if args.use_dsr and args.use_lfa:
-        logger.info("DFDB 框架已激活: PFA (像素空间) + LFA (潜空间) 双空间频率分布扩展")
+        logger.info("DFDB framework activated: PFA (pixel space) + LFA (latent space) dual-space frequency distribution expansion")
 
     # Create EMA for the unet.
     if args.use_ema:
@@ -855,11 +855,11 @@ def main():
 
                 for i, model in enumerate(models):
                     if args.use_lora:
-                        # LoRA: 保存 LoRA 权重
+                        # LoRA: save the LoRA weights
                         unwrapped = accelerator.unwrap_model(model)
                         unwrapped_state = unwrapped.state_dict()
                         lora_state = {k: v for k, v in unwrapped_state.items() if "lora" in k.lower()}
-                        # 也通过 accelerator.save_state 保存完整状态
+                        # Also save the full state via accelerator.save_state
                         model.save_pretrained(os.path.join(output_dir, "unet"))
                     else:
                         model.save_pretrained(os.path.join(output_dir, "unet"))
@@ -923,9 +923,9 @@ def main():
         eps=args.adam_epsilon,
     )
 
-    # ── 数据集：使用 SCTDInpaintingDataset ──
+    # Dataset: ConstructedInpaintingDataset
     with accelerator.main_process_first():
-        train_dataset = SCTDInpaintingDataset(
+        train_dataset = ConstructedInpaintingDataset(
             data_dir=args.train_data_dir,
             resolution=args.resolution,
             center_crop=args.center_crop,
@@ -939,7 +939,7 @@ def main():
         if args.max_train_samples is not None:
             indices = random.sample(range(len(train_dataset)), min(args.max_train_samples, len(train_dataset)))
             train_dataset = torch.utils.data.Subset(train_dataset, indices)
-    logger.info(f"训练样本数: {len(train_dataset)}")
+    logger.info(f"Number of training samples: {len(train_dataset)}")
 
     def collate_fn(examples):
         pixel_values = torch.stack([e["pixel_values"] for e in examples])
@@ -1093,7 +1093,7 @@ def main():
         train_loss = 0.0
         for step, batch in enumerate(train_dataloader):
             with accelerator.accumulate(unet):
-                # ── PFA: 像素级频率增强 (VAE encode 前) ──
+                # ── PFA: pixel-level frequency augmentation (before VAE encode) ──
                 pixel_values = batch["pixel_values"]
                 if dsr is not None:
                     with torch.no_grad():
@@ -1115,7 +1115,7 @@ def main():
                 latents = vae.encode(pixel_values.to(weight_dtype)).latent_dist.sample()
                 latents = latents * vae.config.scaling_factor
 
-                # ── LFA: 潜空间频率增强 ──
+                # ── LFA: latent-space frequency augmentation ──
                 if lfa is not None:
                     with torch.no_grad():
                         mask_for_lfa = batch["masks"].to(latents.device)
@@ -1238,7 +1238,7 @@ def main():
                         save_path = os.path.join(args.output_dir, f"checkpoint-{global_step}")
                         accelerator.save_state(save_path)
 
-                        # LoRA 模式额外保存 LoRA 权重文件
+                        # In LoRA mode, additionally save the LoRA weight file
                         if args.use_lora:
                             unwrapped_unet = unwrap_model(unet)
                             unet_lora_state_dict = convert_state_dict_to_diffusers(
@@ -1276,7 +1276,7 @@ def main():
                 if args.use_ema:
                     ema_unet.restore(unet.parameters())
 
-    # ── 保存最终模型 ──
+    # ── Save the final model ──
     accelerator.wait_for_everyone()
     if accelerator.is_main_process:
         unet = unwrap_model(unet)
@@ -1284,7 +1284,7 @@ def main():
             ema_unet.copy_to(unet.parameters())
 
         if args.use_lora:
-            # LoRA 模式：保存 LoRA 权重
+            # LoRA mode: save the LoRA weights
             unet = unet.to(torch.float32)
             unet_lora_state_dict = convert_state_dict_to_diffusers(
                 get_peft_model_state_dict(unet)
@@ -1295,7 +1295,7 @@ def main():
                 safe_serialization=True,
             )
         else:
-            # 全量微调模式：保存完整 pipeline
+            # Full fine-tuning mode: save the complete pipeline
             pipeline = StableDiffusionPipeline.from_pretrained(
                 args.pretrained_model_name_or_path,
                 text_encoder=text_encoder,

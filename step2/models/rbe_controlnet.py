@@ -1,24 +1,25 @@
 """
-RBE-增强的ControlNet条件嵌入模块
+RBE-enhanced ControlNet conditioning embedding module
 =====================================
-核心思想：将区域边界增强模块(RBE)集成到 ControlNet 的 conditioning_embedding 中，
-通过 Sobel 边缘提取与特征融合，增强分割掩码的边界信息。
+Core idea: integrate the Region Boundary Enhancement (RBE) module into ControlNet's
+conditioning_embedding, enhancing the boundary information of the segmentation mask through
+Sobel edge extraction and feature fusion.
 
-数据流：
+Data flow:
     conditioning_image (3ch, 512×512)
         ↓ conv_in
         [16ch, 512×512]
         ↓ blocks
-        [256ch, 64×64]   ← 深层特征
-        ↓ RBE (Sobel边缘增强)
-        [256ch, 64×64]   ← 边缘增强后的特征
+        [256ch, 64×64]   ← deep features
+        ↓ RBE (Sobel edge enhancement)
+        [256ch, 64×64]   ← edge-enhanced features
         ↓ conv_out (zero_module)
-        [320ch, 64×64]   ← 最终条件嵌入
+        [320ch, 64×64]   ← final conditioning embedding
 
-改进优势（相对标准ControlNet）：
-    1. Sobel边缘提取：显式建模分割边界
-    2. 边缘区域增强：强化掩码轮廓对生成的控制力
-    3. 即插即用：可加载预训练主干权重，RBE随机初始化后微调
+Advantages over standard ControlNet:
+    1. Sobel edge extraction: explicitly models segmentation boundaries
+    2. Edge region enhancement: strengthens the control of the mask contour over generation
+    3. Plug-and-play: can load pretrained backbone weights, with RBE randomly initialized and then fine-tuned
 """
 
 import numpy as np
@@ -36,21 +37,21 @@ from typing import Tuple
 
 
 def zero_module(module: nn.Module) -> nn.Module:
-    """将模块所有参数置零（用于zero convolution初始化）"""
+    """Sets all parameters of the module to zero (used for zero convolution initialization)."""
     for p in module.parameters():
         nn.init.zeros_(p)
     return module
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Sobel 边缘提取 (参考 ISGLNet / Refinement_Module_s)
+# Sobel edge extraction (refer to ISGLNet / Refinement_Module_s)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def get_sobel_kernels(in_chan: int, out_chan: int):
     """
-    构建 Sobel 3×3 卷积核 (x 和 y 方向)
-    标准 Sobel 算子:
-        filter_x: 水平梯度   filter_y: 垂直梯度
+    Builds Sobel 3×3 convolution kernels (x and y directions).
+    Standard Sobel operator:
+        filter_x: horizontal gradient   filter_y: vertical gradient
     """
     filter_x = np.array([
         [1, 0, -1],
@@ -76,38 +77,38 @@ def get_sobel_kernels(in_chan: int, out_chan: int):
 
 class RegionBoundaryEnhancement(nn.Module):
     """
-    区域边界增强模块 (RBE — Region Boundary Enhancement)
+    Region Boundary Enhancement module (RBE)
 
-    数据流:
+    Data flow:
         x [B, C, H, W]
-          ├── Sobel (固定权重) → edge_mag [B, 1, H, W]  (梯度幅值)
+          ├── Sobel (fixed weights) → edge_mag [B, 1, H, W]  (gradient magnitude)
           │       ↓
-          │   edge_gate (可学习 1×1 bottleneck) → attn [B, C, H, W]  (逐通道空间注意力)
+          │   edge_gate (learnable 1×1 bottleneck) → attn [B, C, H, W]  (per-channel spatial attention)
           │
-          ├── edge_conv (depthwise 3×3 + BN) → edge_feat [B, C, H, W]  (轻量边缘特征)
+          ├── edge_conv (depthwise 3×3 + BN) → edge_feat [B, C, H, W]  (lightweight edge features)
           │
-          └── out = x + attn * edge_feat   (残差融合：仅在边缘区域叠加增强)
+          └── out = x + attn * edge_feat   (residual fusion: enhancement is added only in edge regions)
 
-    设计要点:
-        1. Sobel 提取梯度幅值，范围 [0, +∞)
-        2. edge_gate 用 bottleneck(1→C/4→C) + Sigmoid，
-           让网络学习 "哪些通道在边缘处需要增强"，非边缘处 attn→0
-        3. edge_conv 用 depthwise conv 保持轻量，不引入跨通道耦合
-        4. 残差连接：attn≈0 时 out≈x，模块对非边缘几乎无影响
+    Design points:
+        1. Sobel extracts the gradient magnitude, with range [0, +∞).
+        2. edge_gate uses bottleneck(1→C/4→C) + Sigmoid, letting the network learn
+           "which channels need enhancement at edges"; attn→0 in non-edge regions.
+        3. edge_conv uses depthwise conv to stay lightweight, introducing no cross-channel coupling.
+        4. Residual connection: when attn≈0, out≈x, so the module has almost no effect on non-edge regions.
     """
 
     def __init__(self, channels: int):
         super().__init__()
         self.channels = channels
 
-        # ── Sobel 固定卷积核 (不参与梯度) ──
+        # ── Sobel fixed convolution kernels (excluded from gradients) ──
         self.sobel_x = nn.Conv2d(channels, 1, kernel_size=3, stride=1, padding=1, bias=False)
         self.sobel_y = nn.Conv2d(channels, 1, kernel_size=3, stride=1, padding=1, bias=False)
         kx, ky = get_sobel_kernels(channels, 1)
         self.sobel_x.weight = nn.Parameter(kx, requires_grad=False)
         self.sobel_y.weight = nn.Parameter(ky, requires_grad=False)
 
-        # ── 可学习边缘门控: edge_mag (1ch) → 逐通道注意力 (Cch) ──
+        # ── Learnable edge gating: edge_mag (1ch) → per-channel attention (Cch) ──
         mid = max(channels // 4, 16)
         self.edge_gate = nn.Sequential(
             nn.Conv2d(1, mid, kernel_size=1, bias=False),
@@ -116,7 +117,7 @@ class RegionBoundaryEnhancement(nn.Module):
             nn.Sigmoid(),
         )
 
-        # ── 轻量边缘特征提取: depthwise 3×3 ──
+        # ── Lightweight edge feature extraction: depthwise 3×3 ──
         self.edge_conv = nn.Sequential(
             nn.Conv2d(channels, channels, kernel_size=3, stride=1, padding=1,
                       groups=channels, bias=False),
@@ -124,18 +125,18 @@ class RegionBoundaryEnhancement(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # 1. Sobel 梯度幅值 [B, 1, H, W]
+        # 1. Sobel gradient magnitude [B, 1, H, W]
         g_x = self.sobel_x(x)
         g_y = self.sobel_y(x)
         edge_mag = torch.sqrt(g_x.pow(2) + g_y.pow(2) + 1e-8)
 
-        # 2. 逐通道空间注意力 [B, C, H, W]，非边缘处→0，边缘处→大
+        # 2. Per-channel spatial attention [B, C, H, W]: →0 in non-edge regions, →large at edges
         attn = self.edge_gate(edge_mag)
 
-        # 3. 轻量边缘特征 [B, C, H, W]
+        # 3. Lightweight edge features [B, C, H, W]
         edge_feat = self.edge_conv(x)
 
-        # 4. 残差融合：仅在边缘区域叠加增强特征
+        # 4. Residual fusion: add enhancement features only in edge regions
         return x + attn * edge_feat
 
 
@@ -145,13 +146,14 @@ EdgeRefinementModule = RegionBoundaryEnhancement
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# RBE 增强的 Conditioning Embedding
+# RBE-enhanced Conditioning Embedding
 # ─────────────────────────────────────────────────────────────────────────────
 
 class ControlNetConditioningEmbeddingWithRBE(nn.Module):
     """
-    RBE 增强的 ControlNet 条件嵌入模块
-    在深层特征处插入 RegionBoundaryEnhancement，增强分割边界的条件表达。
+    RBE-enhanced ControlNet conditioning embedding module.
+    Inserts RegionBoundaryEnhancement at the deep features to enhance the conditioning
+    representation of segmentation boundaries.
     """
 
     def __init__(
@@ -204,7 +206,7 @@ class ControlNetConditioningEmbeddingWithRBE(nn.Module):
         return embedding
 
     def load_backbone_from_standard(self, standard_embedding: nn.Module) -> None:
-        """从标准 ControlNetConditioningEmbedding 加载主干权重（不包含 RBE）"""
+        """Loads backbone weights from a standard ControlNetConditioningEmbedding (excluding RBE)."""
         with torch.no_grad():
             self.conv_in.weight.copy_(standard_embedding.conv_in.weight)
             self.conv_in.bias.copy_(standard_embedding.conv_in.bias)
@@ -216,8 +218,8 @@ class ControlNetConditioningEmbeddingWithRBE(nn.Module):
             self.conv_out.weight.copy_(standard_embedding.conv_out.weight)
             self.conv_out.bias.copy_(standard_embedding.conv_out.bias)
 
-        print("[OK] 主干权重已从标准 ControlNetConditioningEmbedding 加载")
-        print("  RBE 模块保持随机初始化，等待微调训练")
+        print("[OK] Backbone weights loaded from standard ControlNetConditioningEmbedding")
+        print("  RBE module remains randomly initialized, awaiting fine-tuning")
 
 
 def _infer_block_out_channels(embedding: nn.Module) -> Tuple[int, ...]:
@@ -229,7 +231,7 @@ def _infer_block_out_channels(embedding: nn.Module) -> Tuple[int, ...]:
 
 def apply_rbe_to_controlnet(controlnet, input_resolution: int = 64):
     """
-    就地给已有 ControlNet 替换为 RBE 增强版 conditioning_embedding。
+    Replaces an existing ControlNet's conditioning_embedding in place with the RBE-enhanced version.
     """
     orig_embed = controlnet.controlnet_cond_embedding
 
@@ -248,17 +250,17 @@ def apply_rbe_to_controlnet(controlnet, input_resolution: int = 64):
     controlnet.controlnet_cond_embedding = rbe_embedding
 
     rbe_params = sum(p.numel() for p in rbe_embedding.rbe.parameters())
-    print(f"[OK] RBE 已注入 ControlNet conditioning_embedding  (RBE 新增参数: {rbe_params:,})")
+    print(f"[OK] RBE injected into ControlNet conditioning_embedding  (RBE new parameters: {rbe_params:,})")
 
     return controlnet
 
 
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"使用设备: {device}")
+    print(f"Using device: {device}")
 
     print("\n" + "=" * 50)
-    print("测试: ControlNetConditioningEmbeddingWithRBE 前向传播")
+    print("Test: ControlNetConditioningEmbeddingWithRBE forward pass")
     print("=" * 50)
 
     batch_size = 2
@@ -274,13 +276,13 @@ if __name__ == "__main__":
     with torch.no_grad():
         out = rbe_embed(conditioning)
 
-    print(f"  输入: {conditioning.shape}")
-    print(f"  输出: {out.shape}  期望: [2, 320, 64, 64]")
-    assert out.shape == (batch_size, 320, H // 8, W // 8), f"输出形状错误: {out.shape}"
-    print("  [OK] 前向传播正确")
+    print(f"  Input: {conditioning.shape}")
+    print(f"  Output: {out.shape}  Expected: [2, 320, 64, 64]")
+    assert out.shape == (batch_size, 320, H // 8, W // 8), f"Incorrect output shape: {out.shape}"
+    print("  [OK] Forward pass correct")
 
     total = sum(p.numel() for p in rbe_embed.parameters())
     rbe_only = sum(p.numel() for p in rbe_embed.rbe.parameters())
-    print(f"\n  总参数量: {total:,}")
-    print(f"  RBE参数量: {rbe_only:,}")
-    print(f"  RBE占比: {rbe_only/total*100:.1f}%")
+    print(f"\n  Total parameters: {total:,}")
+    print(f"  RBE parameters: {rbe_only:,}")
+    print(f"  RBE proportion: {rbe_only/total*100:.1f}%")

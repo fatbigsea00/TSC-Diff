@@ -1,35 +1,35 @@
-# SSTar 数据集 (Side-Scan Sonar Targets)
+# SSTar Dataset (Side-Scan Sonar Targets)
 
-SSTar 是本论文构建的**侧扫声呐目标数据集**,采集自真实侧扫声呐(Side-Scan Sonar, SSS)作业数据,覆盖多种典型水下目标。数据集面向声呐图像生成与数据增强任务,作为 TSC-Diff 方法的目标来源与评测基础。
+SSTar is a **side-scan sonar target dataset** constructed in this work, collected from real side-scan sonar (SSS) surveys and covering several typical underwater targets. The dataset targets sonar image generation and data augmentation, and serves as the target source and evaluation basis for the TSC-Diff method.
 
-> 本仓库当前仅提供**少量样本实例**用于展示数据形式。**完整数据集、类别定义、标注与划分等相关信息,将在论文录用后公开。**
+> This repository currently provides only a small number of sample instances to illustrate the data format. **The full dataset, category definitions, annotations, and splits will be released after the paper is accepted.**
 
-## 数据规模
+## Scale
 
-完整数据集共 **489 张**侧扫声呐图像,按目标类型分为 **5 类**(类别文件夹沿用数据集原始命名编码):
+The full dataset contains **489** side-scan sonar images, grouped into **5** target categories (category folders follow the dataset's original naming codes):
 
-| 类别(原始编码) | 完整数据量 | 本仓库样本数 |
-|------------------|-----------|--------------|
+| Category (original code) | Full size | Samples in repo |
+|--------------------------|-----------|-----------------|
 | RGYJ | 389 | 4 |
 | SXJS | 54 | 4 |
 | MTZ | 29 | 4 |
 | JZX | 15 | 4 |
-| shipwreck(沉船) | 2 | 2 |
-| **合计** | **489** | **18** |
+| shipwreck | 2 | 2 |
+| **Total** | **489** | **18** |
 
-## 数据特点
+## Characteristics
 
-- **来源**:真实侧扫声呐扫测影像,非仿真合成。
-- **形态**:单波段声呐强度图(JPG),呈典型声呐成像特征——目标高亮回波 + 后方声学阴影 + 海底背景纹理。
-- **分辨率**:各图尺寸不固定(数百像素量级),保留原始扫测比例。
-- **用途**:作为 TSC-Diff 两阶段生成框架的真实目标样本,用于学习声呐目标分布与受控生成。
+- **Source**: real side-scan sonar survey imagery, not synthetic.
+- **Form**: single-band sonar intensity images (JPG) with typical sonar imaging characteristics — bright target echo + acoustic shadow behind the target + seabed background texture.
+- **Resolution**: image sizes are not fixed (on the order of a few hundred pixels), preserving the original survey aspect ratios.
+- **Use**: real target samples for the two-stage TSC-Diff generation framework, used to learn the sonar target distribution and for controlled generation.
 
-## 目录结构
+## Directory Structure
 
 ```
 dataset/SSTar/
 ├── README.md
-└── samples/                 # 已提供:每类少量样本实例(原始图像)
+└── samples/                 # provided: a few sample instances per category (raw images)
     ├── RGYJ/
     ├── SXJS/
     ├── MTZ/
@@ -37,4 +37,4 @@ dataset/SSTar/
     └── shipwreck/
 ```
 
-> 类别文件夹沿用数据集原始命名编码,此处样本仅作格式展示。完整的类别语义说明、标注文件与训练/测试划分,将随完整数据集一并发布。
+> Category folders follow the dataset's original naming codes; the samples here are for format illustration only. The full category semantics, annotation files, and train/test splits will be released together with the full dataset.
