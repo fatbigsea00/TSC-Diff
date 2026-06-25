@@ -56,15 +56,15 @@ dataset/ConstructedDataset/
 
 ### 2. SSTar (Side-Scan Sonar Targets)
 
-The side-scan sonar target dataset constructed in this work, collected from real side-scan sonar surveys and covering several typical underwater targets. The full dataset contains **489 images** grouped into **5 target categories**:
+The side-scan sonar target dataset constructed in this work, collected from real side-scan sonar surveys (133 survey lines, ~317 km in total) and covering several typical underwater targets. The full dataset contains **489 target samples** grouped into **5 categories**:
 
 | Category (original code) | Full size | Samples in repo |
 |--------------------------|-----------|-----------------|
-| RGYJ | 389 | 4 |
-| SXJS | 54 | 4 |
-| MTZ | 29 | 4 |
-| JZX | 15 | 4 |
-| shipwreck | 2 | 2 |
+| reefs (RGYJ) | 389 | 4 |
+| underwater_reefs (SXJS) | 54 | 4 |
+| dock_piles (MTZ) | 29 | 4 |
+| containers (JZX) | 15 | 4 |
+| shipwrecks | 2 | 2 |
 | **Total** | **489** | **18** |
 
 > This release provides only a few sample instances (see [dataset/SSTar/samples/](dataset/SSTar/samples/); details in [dataset/SSTar/README.md](dataset/SSTar/README.md)).
@@ -74,7 +74,7 @@ Characteristics: real side-scan sonar imagery (not synthetic), single-band sonar
 ```
 dataset/SSTar/
 ├── samples/                 # provided: a few sample instances per category
-│   ├── RGYJ/  SXJS/  MTZ/  JZX/  shipwreck/
+│   ├── reefs/  underwater_reefs/  dock_piles/  containers/  shipwrecks/
 ├── <full per-category images>   # to be added
 ├── metadata.jsonl           # to be added: image-prompt-annotation metadata
 └── split.json               # to be added: train/test split
