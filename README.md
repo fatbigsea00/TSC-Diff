@@ -33,19 +33,30 @@ pip install -r requirements.txt
 
 ## 数据集
 
-> 本发布版提供**部分训练样本示例**(见 [dataset/SCTD/samples/](dataset/SCTD/samples/),每类 3 组「原图 + 分割条件图」),完整数据集将于论文录用后公开。
+本文构建并使用 **SSTar(Side-Scan Sonar Targets)** 侧扫声呐目标数据集,采集自真实侧扫声呐作业数据,覆盖多种典型水下目标。完整数据集共 **489 张**图像,按目标类型分为 **5 类**:
 
-完整数据集的预期目录结构如下,补充数据时按此放置即可:
+| 类别(原始编码) | 完整数据量 | 本仓库样本数 |
+|------------------|-----------|--------------|
+| RGYJ | 389 | 4 |
+| SXJS | 54 | 4 |
+| MTZ | 29 | 4 |
+| JZX | 15 | 4 |
+| shipwreck(沉船) | 2 | 2 |
+| **合计** | **489** | **18** |
+
+> 本发布版仅提供**少量样本实例**(见 [dataset/SSTar/samples/](dataset/SSTar/samples/),详见 [dataset/SSTar/README.md](dataset/SSTar/README.md));**完整数据集、类别定义、标注与划分等信息将在论文录用后公开。**
+
+数据特点:真实侧扫声呐影像(非仿真),单波段声呐强度图,呈典型成像特征(目标高亮回波 + 后方声学阴影 + 海底背景纹理),各图分辨率不固定。
+
+完整数据集发布后,按如下结构放置即可运行:
 
 ```
-dataset/SCTD/
-├── samples/                     # 已提供:每类少量样本示例(图 + 掩码)
-├── aircraft/                    # 待补充:各类别图像 + 标注
-├── ship/
-├── human/
-├── artificial fishing reef/
-├── metadata.jsonl               # 图像-提示词-掩码元信息
-└── split_4cat_70_plus_afr.json  # train/test 划分
+dataset/SSTar/
+├── samples/                 # 已提供:每类少量样本实例
+│   ├── RGYJ/  SXJS/  MTZ/  JZX/  shipwreck/
+├── <各类别完整图像>          # 待补充
+├── metadata.jsonl           # 待补充:图像-提示词-标注元信息
+└── split.json               # 待补充:train/test 划分
 ```
 
 ## 使用方法
