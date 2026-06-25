@@ -220,10 +220,6 @@ class ControlNetConditioningEmbeddingWithRBE(nn.Module):
         print("  RBE 模块保持随机初始化，等待微调训练")
 
 
-# Backward-compatible aliases
-ControlNetConditioningEmbeddingWithERM = ControlNetConditioningEmbeddingWithRBE
-
-
 def _infer_block_out_channels(embedding: nn.Module) -> Tuple[int, ...]:
     channels = [embedding.conv_in.out_channels]
     for i in range(0, len(embedding.blocks), 2):
@@ -255,10 +251,6 @@ def apply_rbe_to_controlnet(controlnet, input_resolution: int = 64):
     print(f"[OK] RBE 已注入 ControlNet conditioning_embedding  (RBE 新增参数: {rbe_params:,})")
 
     return controlnet
-
-
-# Backward-compatible alias
-apply_erm_to_controlnet = apply_rbe_to_controlnet
 
 
 if __name__ == "__main__":

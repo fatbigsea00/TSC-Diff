@@ -281,11 +281,11 @@ def parse_args():
         default=1.0,
         help="Zero conv 层学习率倍数 (推荐 5-10)",
     )
-    # ── 模块开关：ERM ──
+    # ── 模块开关：RBE ──
     parser.add_argument(
         "--use_rbe",
         action="store_true",
-        help="使用 ERM (边缘增强模块) 增强 ControlNet conditioning_embedding",
+        help="使用 RBE (区域边界增强模块) 增强 ControlNet conditioning_embedding",
     )
     # ── 模块开关：MapCA ──
     parser.add_argument(
@@ -780,7 +780,7 @@ def main():
                 torch.save(controlnet_model.state_dict(),
                            os.path.join(save_dir, "diffusion_pytorch_model.bin"))
                 controlnet_model.save_config(save_dir)
-            print(f"训练完成! ERM-ControlNet 已保存到: {save_dir}")
+            print(f"训练完成! RBE-ControlNet 已保存到: {save_dir}")
         else:
             controlnet_model.save_pretrained(save_dir)
             print(f"训练完成! ControlNet已保存到: {save_dir}")

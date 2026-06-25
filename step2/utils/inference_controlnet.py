@@ -159,30 +159,19 @@ def load_pipeline(args):
         args.controlnet_model_path, torch_dtype=dtype,
     )
 
-    # RBE/ERM: 区域边界增强模块
-    if args.use_erm:
-        # 新版本训练保存的子模块名为 rbe，需用 rbe_controlnet 注入；
-        # 兼容老 erm_controlnet 训练出的 ckpt 时再回退。
-        try:
-            from models.rbe_controlnet import apply_rbe_to_controlnet
-            controlnet = apply_rbe_to_controlnet(controlnet, input_resolution=args.resolution // 8)
-        except ImportError:
-            from models.erm_controlnet import apply_erm_to_controlnet
-            controlnet = apply_erm_to_controlnet(controlnet, input_resolution=args.resolution // 8)
-        # 优先 rbe_controlnet.pth（新名），回退 erm_controlnet.pth（兼容旧 ckpt）
-        weight_path = None
-        for cand in ("rbe_controlnet.pth", "erm_controlnet.pth"):
-            p = os.path.join(args.controlnet_model_path, cand)
-            if os.path.exists(p):
-                weight_path = p
-                break
-        if weight_path is None:
-            print(f"[WARN] 未找到 rbe_controlnet.pth / erm_controlnet.pth，"
+    # RBE: 区域边界增强模块
+    if args.use_rbe:
+        from models.rbe_controlnet import apply_rbe_to_controlnet
+        controlnet = apply_rbe_to_controlnet(controlnet, input_resolution=args.resolution // 8)
+        weight_path = os.path.join(args.controlnet_model_path, "rbe_controlnet.pth")
+        if not os.path.exists(weight_path):
+            print(f"[WARN] 未找到 rbe_controlnet.pth，"
                   f"RBE 模块将保持随机初始化 -> 推理结果可能不正确")
-        else:
+            weight_path = None
+        if weight_path is not None:
             state_dict = torch.load(weight_path, map_location="cpu", weights_only=True)
             missing, unexpected = controlnet.load_state_dict(state_dict, strict=False)
-            print(f"已加载 RBE/ERM 训练权重: {weight_path}")
+            print(f"已加载 RBE 训练权重: {weight_path}")
             if missing:
                 print(f"  [info] missing keys: {len(missing)} (前 3 项: {missing[:3]})")
             if unexpected:
@@ -510,9 +499,8 @@ def parse_args():
     parser.add_argument("--seed", type=int, default=42)
 
     # 模块开关 (与训练脚本保持一致)
-    # 历史上 ERM 模块改名为 RBE (Region Boundary Enhancement)，两个 flag 等价
-    parser.add_argument("--use_erm", "--use_rbe", dest="use_erm", action="store_true",
-                        help="使用 RBE/ERM 区域边界增强模块（同义）")
+    parser.add_argument("--use_rbe", dest="use_rbe", action="store_true",
+                        help="使用 RBE 区域边界增强模块")
     parser.add_argument("--use_mask_ca", action="store_true", help="使用掩码引导交叉注意力 (MaskCA)")
     parser.add_argument("--ca_obj_boost", type=float, default=0.5, help="物体区域交叉注意力增强系数")
     parser.add_argument("--ca_shadow_boost", type=float, default=0.3, help="阴影区域交叉注意力增强系数")
