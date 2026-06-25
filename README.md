@@ -33,11 +33,14 @@ pip install -r requirements.txt
 
 ## 数据集
 
-> 本发布版**暂未包含**数据集,请按下述结构放置后再运行。
+> 本发布版提供**部分训练样本示例**(见 [dataset/SCTD/samples/](dataset/SCTD/samples/),每类 3 组「原图 + 分割条件图」),完整数据集将于论文录用后公开。
+
+完整数据集的预期目录结构如下,补充数据时按此放置即可:
 
 ```
 dataset/SCTD/
-├── aircraft/                    # 各类别图像
+├── samples/                     # 已提供:每类少量样本示例(图 + 掩码)
+├── aircraft/                    # 待补充:各类别图像 + 标注
 ├── ship/
 ├── human/
 ├── artificial fishing reef/
