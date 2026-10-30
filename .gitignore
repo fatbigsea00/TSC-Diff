@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+
+# model weights / checkpoints / outputs
+checkpoints/
+outputs/
+logs/
+runs/
+wandb/
+pretrained/
+*.ckpt
+*.safetensors
+*.pth
+*.pt
+*.bin
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
