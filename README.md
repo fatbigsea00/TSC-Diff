@@ -23,6 +23,22 @@ TSC-Diff/
     └── SSTar/samples/                # raw SSTar sample images
 ```
 
+## Paper Configuration
+
+The module defaults match the settings used in the paper experiments:
+
+```python
+from step1.plugins.DSR import DoublePerturb, LatentFrequencyPerturb
+from step2.models.map_cross_attention import set_map_ca_data
+
+pfa = DoublePerturb(feat_dim=3, prob=0.5)            # PFA
+lfa = LatentFrequencyPerturb(alpha=0.05, prob=0.15)  # LFA
+
+# MapCA (obj, shadow) boost per resolution:
+# REGION_BOOST = {64: (0.35, 0.2), 32: (0.5, 0.3), 16: (0.5, 0.3), 8: (0.5, 0.3)}
+set_map_ca_data(colormap, timestep=t, gate_mid=400.0, gate_temp=100.0)
+```
+
 ## Installation
 
 ```bash

@@ -28,12 +28,14 @@ _MAP_CA_STORE: Dict = {}
 
 # Paper default: mild per-resolution boost (obj, shadow)
 REGION_BOOST = {64: (0.35, 0.2), 32: (0.5, 0.3), 16: (0.5, 0.3), 8: (0.5, 0.3)}
+OBJ_BOOST = {r: v[0] for r, v in REGION_BOOST.items()}
+SHADOW_BOOST = {r: v[1] for r, v in REGION_BOOST.items()}
 
 
 def set_map_ca_data(
     colormap: torch.Tensor,
-    obj_boost: Union[float, Dict[int, float]] = 0.5,
-    shadow_boost: Union[float, Dict[int, float]] = 0.3,
+    obj_boost: Optional[Union[float, Dict[int, float]]] = None,
+    shadow_boost: Optional[Union[float, Dict[int, float]]] = None,
     timestep: Optional[torch.Tensor] = None,
     gate_mid: float = 400.0,
     gate_temp: float = 100.0,
@@ -43,12 +45,18 @@ def set_map_ca_data(
     Args:
         colormap: [B, 3, H, W] float tensor in [0, 1].
         obj_boost:  float (uniform) or dict {res: boost} (per-resolution).
-        shadow_boost: same as obj_boost.
+                    None uses the paper setting (OBJ_BOOST).
+        shadow_boost: same as obj_boost; None uses SHADOW_BOOST.
         timestep: [B] int tensor, current diffusion timestep. None = no gating.
         gate_mid: timestep center for sigmoid gate.
         gate_temp: temperature for sigmoid gate.
     """
     global _MAP_CA_STORE
+
+    if obj_boost is None:
+        obj_boost = OBJ_BOOST
+    if shadow_boost is None:
+        shadow_boost = SHADOW_BOOST
 
     obj_mask, shadow_mask = extract_region_masks(colormap)
 
@@ -299,14 +307,20 @@ def install_timestep_hook(unet) -> None:
 
 def set_map_ca_data_with_bases(
     colormap: torch.Tensor,
-    obj_boost_dict: Dict[int, float],
-    shadow_boost_dict: Dict[int, float],
+    obj_boost_dict: Optional[Dict[int, float]] = None,
+    shadow_boost_dict: Optional[Dict[int, float]] = None,
 ) -> None:
     """Store mask data with base masks for timestep hook to recompute modulation.
 
     Used for inference where timestep changes each denoising step.
+    None boost dicts use the paper setting (OBJ_BOOST / SHADOW_BOOST).
     """
     global _MAP_CA_STORE
+
+    if obj_boost_dict is None:
+        obj_boost_dict = OBJ_BOOST
+    if shadow_boost_dict is None:
+        shadow_boost_dict = SHADOW_BOOST
 
     obj_mask, shadow_mask = extract_region_masks(colormap)
 

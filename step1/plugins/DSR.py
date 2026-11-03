@@ -87,7 +87,7 @@ class DoublePerturb(nn.Module):
     constrained to [0, 1], so the perturbed amplitude is a convex combination of two non-negative
     spectra and stays non-negative by construction.
     """
-    def __init__(self, feat_dim=3, random_size=3, random_std=0.1, prob=1.0, mask_size=9):
+    def __init__(self, feat_dim=3, random_size=3, random_std=0.1, prob=0.5, mask_size=9):
         super(DoublePerturb, self).__init__()
         self.random_conv = RandomConv(feat_dim, random_size, random_std)
         self.mask_dilator = MaskDilator(kernel_size=mask_size)
@@ -202,10 +202,10 @@ class LatentFrequencyPerturb(nn.Module):
     DFDB (Dual-space Frequency Distribution Broadening) framework.
 
     Args:
-        alpha: perturbation strength coefficient that controls the noise amplitude (default 0.1)
-        prob:  perturbation trigger probability (default 0.3)
+        alpha: perturbation strength coefficient that controls the noise amplitude (default 0.05)
+        prob:  perturbation trigger probability (default 0.15)
     """
-    def __init__(self, alpha=0.1, prob=0.3):
+    def __init__(self, alpha=0.05, prob=0.15):
         super().__init__()
         self.alpha = alpha
         self.prob = prob
