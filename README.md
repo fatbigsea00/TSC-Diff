@@ -1,6 +1,12 @@
 # TSC-Diff
 
-TSC-Diff is a two-stage diffusion framework for **side-scan sonar image generation / data augmentation**. Stage 1 fine-tunes Stable Diffusion on sonar data with Dual-space Frequency Distribution Broadening (DFDB = PFA + LFA). Stage 2 trains a ControlNet with Target-Shadow Coupled Guidance to generate sonar images at specified categories and locations.
+TSC-Diff is a two-stage diffusion framework for **side-scan sonar image generation / data augmentation**. Stage 1 fine-tunes Stable Diffusion on sonar data with Dual-space Frequency Distribution Broadening (DFDB = PFA + LFA). Stage 2 trains a ControlNet conditional branch with Target-Shadow Coupled Guidance (TSCG = TRM + RBE + MapCA), using the sonar-adapted SD U-Net as a frozen backbone.
+
+TSCG incorporates target-shadow layout information through three guidance components:
+
+- **Condition guidance (TRM):** a Tri-Region Map represents the target, shadow, and background regions and conditions the trainable branch.
+- **Feature guidance (RBE):** Region Boundary Enhancement strengthens boundary cues in the conditional features.
+- **Attention guidance (MapCA):** Map-guided Cross-Attention uses TRM-derived target and shadow masks to spatially reweight cross-attention outputs in the frozen backbone.
 
 This repository currently provides the core modules and a few sample images. The full training/inference pipeline and datasets will be released after the paper is accepted.
 
